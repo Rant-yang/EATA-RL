@@ -5,25 +5,25 @@
 
 import numpy as np
 import pandas as pd
-from data import DataWorker
-from preprocess import Preprocessor
+from .data import BaostockDataWorker
+from .preprocess import Preprocessor
 
 class Bandwagon():
     def __init__(self, df: pd.DataFrame):
         # df.columns = ['code', 'name','weight', 'sector']
         # 分别代表：股票代码，股票名称，权重，所属板块的指数代码
         # 对于“所属板块的指数代码”，如果该股票实在找不到对应的板块或者无法获取其代码，可以用大盘的指数来代替。
-        self.dw = DataWorker()
+        self.dw = BaostockDataWorker()
         self.pre = Preprocessor()
         self.stock_list = df
         self.stocks = self.__prepare__(self.stock_list.code)
         self.sectors = self.__prepare__(self.stock_list.sector)
-        markets_code = [market_of(c) for c in self.stock_list.code] # 对每个股票获得其大盘指数代码
+        markets_code = self.stock_list.code.apply(self.market_of) # 对每个股票获得其大盘指数代码
         markets_code = markets_code.drop_dupulicates() # 去重     
         self.markets = self.__prepare__(markets_code) # 准备好大盘数据
         
     @staticmethod
-    def market_of(code:str) -> str:
+    def market_of(self, ticker:str) -> str:
         '''根据股票代码，返回其所在的大盘指数代码
         http://baostock.com/baostock/index.php/指数数据
         综合指数，例如：sh.000001 上证指数，sz.399106 深证综指 等；
@@ -80,14 +80,14 @@ class Bandwagon():
         # 计算每个market的strength 
         self.markets['strength'] = self.markets.apply(criteria, axis=1)
         # 为stocks增加market字段，填入指数代码
-        self.stocks['market'] = market_of(self.stocks.code)
+        self.stocks['market'] = self.market_of(self.stocks.code)
         # 根据指数代码market对应大盘的指数代码code，进行连接
         self.stocks.merge(self.markets, left_on="market", right_on="code", how="left")
 
     def stock_momentum(self, ticker): # v1.2
         '''股票涨跌惯性，根据昨天的涨跌定义今天的惯性，涨：1，跌：-1
         '''
-        # 用diff(1)获得正负号。>0 => 1, <0 => -1
+        # 用diff(1)获得正负号。  >0 => 1, <0 => -1
         # self.stocks['momentum'] = 1 if self.stocks.close.diff(1)>0 else -1
         # 当然这里可以sigmoid*2-1函数归到(-1,1)区间，这样就出现了小数
         sig21 = lambda x: 2/(1 + np.exp(-x)) - 1
