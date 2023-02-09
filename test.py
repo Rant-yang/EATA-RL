@@ -8,113 +8,18 @@
 4. `evaluate` the predicted result, calculating the asset_change, reward (in evaluate.py)
 5. `visualize` the evaluated result (in visualize.py)
 '''
-import datetime
-import pandas as pd
-import numpy as np
-from data import BaostockDataWorker
-from preprocess import Preprocessor
+from env import StockmarketEnv
+from bandwagon import Bandwagon as agent     # 换其他模型，只需要修改这句。例如 from chandelier import ChandelierExit as agent
 from datetime import datetime
-import gym
-from globals import BASE_COLUMNS_Minute, BASE_COLUMNS, OCLHVA, indicators
-import pysnooper
-
-from bandwagon import Bandwagon
-
-#%%
-class BandwagonEnv(gym.Env):
-
-#%%
-    def __init__(self, row, days = 2000, window_size=20):
-        ''' set of the stocks, algo, and days to trace back
-            the file_name must be a xls file and has fields like .code, .sector, .weight
-        '''
-        super(BandwagonEnv, self).__init__()
-        self.dataworker = BaostockDataWorker()
-        self.window_size = 20
-        self.trade_days = self.dataworker.calendar[self.dataworker.calendar.is_trading_day == "1"] # 所有交易日
-        
-        # @pysnooper.snoop()
-        def prepare(r, days = 2000, window_size=20):
-            '''一年交易日约为244日
-            分钟线只需要oclhva，日线以上有indicators应该够用了
-            '''
-            stock5m = self.dataworker.latest(r.code, ktype="5", days = days) # 5分钟线 [OCLHVA]
-            self.stock5m = Preprocessor(stock5m).clean().df[BASE_COLUMNS_Minute+OCLHVA]
-            stock = self.dataworker.latest(r.code, ktype="d", days = days) # 股票日线[reward, landmark, indicators]
-            self.stock = Preprocessor(stock).bundle_process()[BASE_COLUMNS+OCLHVA+indicators]
-            sector = self.dataworker.latest(r.sector, ktype="d", days = days) # 板块日线 [indicators]
-            self.sector = Preprocessor(sector).clean().add_indicators().df[BASE_COLUMNS + indicators]
-            market_code = self.get_market(r.code)
-            market = self.dataworker.latest(market_code, ktype="d", days = days)
-            self.market = Preprocessor(market).clean().add_indicators().df[BASE_COLUMNS + indicators] # 大盘日线 [indicators]
-            # self.stock_matrices = [x.values for x in stock.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
-            # self.sector_matrices = [x.values for x in sector.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
-            # self.market_matrices = [x.values for x in market.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
-            # alignment for three dataframes or matrices (a)here or (b) in .step() method.
-
-
-        prepare(row)    # prepare the data we need
-
-#%%
-    def render(self, mode='human', close=False):
-        # Render the environment to the screen
-        pass
-
-    def seed(self, seed):
-        np.random.seed(seed)
-
-    def reset(self):
-        ''' re-start from the first day
-        '''
-        self.iter = self.window_size - 1
-        return self.step()
-
-    def _reward(self, a:int, df_slice:pd.DataFrame):
-        if a is None: return 0
-        assert a in [-1, 0, 1], "invalid action " + str(a)
-        column = {1:"buy_reward",0:"hold_reward", -1:"sell_reward"}[a]
-        return df_slice.iloc[-1][column]
-    
-    def _info(self, df_slice:pd.DataFrame):
-        return df_slice.iloc[-1][['ticker','date','close']].to_dict()
-#%%
-    def step(self, a:int = None):
-        self.iter = self.iter if a else self.window_size - 1    # if no action, go back to the first row
-        days = self.trade_days.iloc[self.iter +1 - self.window_size : self.iter+1].calendar_date # 警惕:df.loc[] 左闭右闭，df.iloc[]左闭右开
-        # 使用days作为指针，获取stock, sector, market的指定范围的数据
-        s0 = self.stock5m[self.stock5m.date.isin(days)]  # 分钟线 oclhva
-        s1 = self.stock[self.stock.date.isin(days)]    # 股票日线， landmark, reward, indicators
-        s2 = self.sector[self.sector.date.isin(days)]   # 板块日线，仅indicators
-        s3 = self.market[self.market.date.isin(days)]   # 股市日线，仅indicators
-        # 尽量保持原有信息，工作可以交给bandwagon.choose_action(), 由agent自行决定如何使用。
-        s_ = (s0, s1, s2, s3)  # 拼接后再返回
-        info = self._info(s1)    # 将ticker,价格和交易日期通过info传递
-        r = self._reward(a, s1)  # indicators和reward的计算基于日线，即s1的最后一行
-        # s_ = encode(s_)   # 未来还是将state进行编码后返回吧
-        done = False if self.iter < len(self.trade_days) -1  else True
-        self.iter += 1
-        return s_, r, done, info
-#%%    
-    def get_market(self, ticker:str)->str:
-        '''都是上证的股票，都是同一个大盘。因此直接返回sh.000001即可'''
-        return "sh.000001"
-    # a generator version of step()
-    # def next_oclh(self):
-    #     self.next_ticker() # for j, t in self.next_ticker(): # make next_ticker() and next_oclh() as a whole
-    #     for i, row in self.stock.iterrows():
-    #         end_of_stock = True if i == len(self.stock)-1 else False # last row of data
-    #         lm = self._rest_oclh(row) # future several oclh from this time
-    #         done = yield row, lm, end_of_stock  # after yield, hang here for further invoke, then goes to next line
-    #         if done and not end_of_stock : break # to received message from invoker as gen.send(msg)
-    
-#%%
+import pandas as pd
+from tqdm import trange
 
 def run(row, days) -> pd.DataFrame:
-    env = BandwagonEnv(row, days)
+    env = StockmarketEnv(row, days)
     s = env.reset()
     result = pd.DataFrame(columns=['ticker','date','close','action','reward'])
-    for _ in range(days): # for each row of a stock data, days copied from data days
-        a = Bandwagon.choose_action(s)  # a class method of class Bandwagon
+    for _ in trange(days): # for each row of a stock data, days copied from data days
+        a = agent.choose_action(s)  # a class method of class Bandwagon
         s_, r, done, info = env.step(a)
         result.loc[len(result)] = [*info.values(), a, r] # append new row for df `result`.
         s = s_
@@ -124,9 +29,15 @@ def run(row, days) -> pd.DataFrame:
     return result
     
 #%%
+import importlib
+import sys
 if __name__ == "__main__":
-    today = datetime.today().strftime("%Y-%m-%d")   # make sure it does not go beyond to the next day
-    df = pd.read_excel("000016closeweight(5).xls", dtype={'code':'str'}, header = 0)
-    for _, row in df.iterrows(): # for each SZ50 constituent
-        result = run(row, days= 2000)
-        result.to_csv(f"output{today}/{row.code}.csv")
+    # agent = importlib.import_module(sys.argv[2])
+    print(f"Testing {agent.__name__}")
+    today = datetime.today().strftime("%Y%m%d.%H%M")   # make sure it does not go beyond to the next day
+    df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
+    df = df.sample(2) # 开发时用，测试agent的时候将此行注释即可
+    for i, row in df.iterrows(): # for each SZ50 constituent
+        print(f"#{i} processing {row.code} {row['name']}")
+        result = run(row, days= 1000)   
+        result.to_csv(f"{agent.__name__}/{today}{row.code}.csv")

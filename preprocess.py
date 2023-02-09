@@ -7,14 +7,14 @@ from utils import attach_to, landmarks_BB
 import torch
 import warnings
 warnings.filterwarnings('ignore')
-from data_work import DataStorage, DataWorker 
-from globals import indicators, OCLHVA, Normed_OCLHVA
+from data import DataStorage, BaostockDataWorker 
+from globals import indicators, OCLHVA, Normed_OCLHVA, REWARD
 
 class Preprocessor():
 
     def __init__(self,df:pd.DataFrame=None) -> None:
-        self.ds = DataStorage()
-        self.dw = DataWorker()
+        # self.ds = DataStorage()
+        # self.dw = BaostockDataWorker()
         self.df = self.ds.load_raw() if df is None else df
 
         self.normalization = 'div_pre_close' # 'div_pre_close' | 'div_self' |'standardization' | 'z-score' 
@@ -175,12 +175,14 @@ class Preprocessor():
         def attach_rewards(a,b):
             piece = d.loc[a:b]     # df.loc 闭区间；df.iloc开区间
             buy_reward, hold_reward, sell_reward =  reward_by_length(len(piece), 1 if piece.iloc[0].landmark == "v" else -1 )
-            # df.loc[a:b,['buy_reward','hold_reward','sell_reward']] = buy_reward, hold_reward, sell_reward 
+            # df.loc[a:b,['buy_reward','hold_reward','sell_reward']] \
+            # = pd.DataFrame({'buy_reward':buy_reward, "hold_reward":hold_reward, "sell_reward":sell_reward}
             d.loc[a:b,'buy_reward'] = buy_reward
             d.loc[a:b,'hold_reward'] = hold_reward
             d.loc[a:b,'sell_reward'] = sell_reward 
+            
 
-        d[['buy_reward','hold_reward','sell_reward']] = 0
+        d[REWARD] = 0
         [attach_rewards(x1,x2) for x1,x2 in zip(d1,d2)]
 
         self.df = d if df is None else self.df
@@ -192,7 +194,6 @@ class Preprocessor():
         if if_market: 
             self.normalize()
         else:
-            # self.clean().normalize().landmark().add_indicators() #.embedding()
             self.clean().landmark().add_reward_().add_indicators() 
         
         return self.df

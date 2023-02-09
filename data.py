@@ -68,12 +68,12 @@ class DataStorage():
 class DataWorker(object):
     def __init__(self) -> None:
         self.ds = DataStorage()
-        self.begin = "2017-01-01"
+        self.begin = "2000-01-01"
 
     def __del__(self) -> None:
         pass
     
-    @property
+    # @property
     def all_tickers(self) -> pd.DataFrame :
         pass
     
@@ -122,11 +122,10 @@ class BaostockDataWorker(DataWorker):
         super().__init__()
         self.login = bs.login(user_id="anonymous", password="123456")
         self.ds = DataStorage()
-        self.begin = "2000-01-01"
         self.calendar = self.market_calendar()
-        bs.login()
+        self.calendar = self.calendar[self.calendar.is_trading_day == "1"]  # 只留下交易日
 
-    @property
+    # @property
     def all_tickers(self) -> pd.DataFrame :
         tickers = bs.query_stock_basic().get_data()  # 获取最新证券基本资料，可以通过参数设置获取对应证券代码、证券名称的数据
         self.ds.save_tickers(tickers)
@@ -158,7 +157,7 @@ class BaostockDataWorker(DataWorker):
     
     def market_calendar(self):
         '''return market trading days'''
-        rs = bs.query_trade_dates(start_date="2017-01-01", end_date = datetime.today().strftime("%Y-%m-%d"))
+        rs = bs.query_trade_dates(start_date=self.begin, end_date = datetime.today().strftime("%Y-%m-%d"))
         return  rs.get_data()
     
     def latest(self,ticker, ktype = '5', days = 20):
@@ -219,7 +218,7 @@ if __name__ == "__main__":
     DATABASE_PATH = os.getcwd()     # 解决方法
     print("----database:"+DATABASE_PATH +"/"+ DATABASE + "----")
     dw = BaostockDataWorker()
-    t = dw.all_tickers
+    t = dw.all_tickers()
     t[['type','status']] = t[['type','status']].astype("int16")
     # t[['ipoDate','outDate']] = pd.to_datetime(t[['ipoDate','outDate']])
     t[['code','code_name']] = t[['code','code_name']].astype("string")

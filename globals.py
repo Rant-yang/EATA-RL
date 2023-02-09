@@ -35,6 +35,8 @@ mkt_indicators = [MARKET_PREFIX+x for x in indicators]
 sct_indicators = [SECTOR_PREFIX+x for x in indicators]
 MKT_OCLHVA = OCLHVA 
 mkt_oclhva_normed = [MARKET_PREFIX+x for x in Normed_OCLHVA]
+REWARD = ['buy_reward', 'hold_reward', 'sell_reward']
+WEEKDAY = ['day']
 
 #%%
 import baostock

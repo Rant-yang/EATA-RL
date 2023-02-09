@@ -1,8 +1,18 @@
 #!/usr/bin/env python
 # coding=utf-8
-# (1)不要炒股票——详解只做ETF一年翻倍的花车理论 - 矩阵的文章 - 知乎 https://zhuanlan.zhihu.com/p/475647897
 # @author  Yin Tang, Xiaotong Luo 
 # @date 2023.01.26
+'''
+Chandelier Exit https://corporatefinanceinstitute.com/resources/equities/chandelier-exit/
+
+The formulas for the two lines are as follows:
+- Chandelier Exit Long: n-day Highest High – ATR (n) x Multiplier
+- Chandelier Exit Short: n-day Lowest Low + ATR (n) x Multiplier
+
+Where:
+- $n$ is the default unit period of 22 or the number that the trader chooses.
+- The multiplier is the default 3 Average True Range.
+'''
 
 import numpy as np
 import pandas as pd
@@ -11,7 +21,10 @@ from data import BaostockDataWorker
 from preprocess import Preprocessor
 import pysnooper
 
-class Bandwagon():
+class BaseAgent():
+    pass
+
+class Chandelier(BaseAgent):
     def __init__(self, df: pd.DataFrame):
         # df.columns = ['code', 'name','weight', 'sector']
         # 分别代表：股票代码，股票名称，权重，所属板块的指数代码
@@ -160,7 +173,7 @@ if __name__ == "__main__":
     df = pd.read_excel("000016closeweight.xls", dtype={'code':'str'}, header = 0)
     # df['code'] = 'sh.'+df.code
     # df = pd.read_excel("000016closeweight(5).xls", dtype={'code':'str'}, header = 0)
-    bw = Bandwagon(df)
+    bw = Chandelier(df)
     score = bw.vote()
     print(f"score = {score}, Buy(1) or Sell(-1)?", bw.etf_action(score))
     print(bw.stock_list)
