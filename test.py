@@ -13,12 +13,13 @@ from bandwagon import Bandwagon as agent     # 换其他模型，只需要修改
 from datetime import datetime
 import pandas as pd
 from tqdm import trange
+import os
 
 def run(row, days) -> pd.DataFrame:
     env = StockmarketEnv(row, days)
     s = env.reset()
     result = pd.DataFrame(columns=['ticker','date','close','action','reward'])
-    for _ in trange(days): # for each row of a stock data, days copied from data days
+    for _ in trange(len(env.trade_days)): # for each row of a stock data, days copied from data days
         a = agent.choose_action(s)  # a class method of class Bandwagon
         s_, r, done, info = env.step(a)
         result.loc[len(result)] = [*info.values(), a, r] # append new row for df `result`.
@@ -27,17 +28,26 @@ def run(row, days) -> pd.DataFrame:
             break
 
     return result
-    
+
+# "./" will be added in front of each directory
+def check_and_make_directories(directories: list[str]):
+    for directory in directories:
+        if not os.path.exists("./" + directory):
+            os.makedirs("./" + directory)
 #%%
 import importlib
 import sys
+
 if __name__ == "__main__":
     # agent = importlib.import_module(sys.argv[2])
-    print(f"Testing {agent.__name__}")
+    obj = agent.__name__    # 测试对象名称
+    print(f"Testing {obj}")
     today = datetime.today().strftime("%Y%m%d.%H%M")   # make sure it does not go beyond to the next day
     df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
     df = df.sample(2) # 开发时用，测试agent的时候将此行注释即可
     for i, row in df.iterrows(): # for each SZ50 constituent
-        print(f"#{i} processing {row.code} {row['name']}")
-        result = run(row, days= 1000)   
-        result.to_csv(f"{agent.__name__}/{today}{row.code}.csv")
+        # print(f"#{i} processing {row.code} {row['name']}")
+        result = run(row, days= 2000)   
+        check_and_make_directories([obj])
+        result.to_csv(f"{obj}/{today}{row.code}.csv")
+    print(f"Test done. check the folder {obj}")

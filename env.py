@@ -4,7 +4,7 @@ from data import BaostockDataWorker
 from preprocess import Preprocessor
 from datetime import datetime
 import gym
-from globals import BASE_COLUMNS_Minute, BASE_COLUMNS, OCLHVA, indicators, REWARD, WEEKDAY
+from globals import TDT, TD , OCLHVA, indicators, REWARD, WEEKDAY
 import pysnooper
 
 from retrying import retry
@@ -26,14 +26,14 @@ class StockmarketEnv(gym.Env):
             分钟线只需要oclhva，日线以上有indicators应该够用了
             '''
             stock5m = self.dataworker.latest(r.code, ktype="5", days = days) # 5分钟线 [OCLHVA]
-            self.stock5m = Preprocessor(stock5m).clean().df[BASE_COLUMNS_Minute+OCLHVA] # `day`字段跑哪儿去了？
+            self.stock5m = Preprocessor(stock5m).clean().df[TDT+OCLHVA] # `day`字段跑哪儿去了？
             stock = self.dataworker.latest(r.code, ktype="d", days = days) # 股票日线[reward, landmark, indicators]
-            self.stock = Preprocessor(stock).bundle_process()[BASE_COLUMNS+OCLHVA+REWARD+indicators+WEEKDAY]
+            self.stock = Preprocessor(stock).bundle_process()[TD+OCLHVA+REWARD+indicators+WEEKDAY]
             sector = self.dataworker.latest(r.sector, ktype="d", days = days) # 板块日线 [indicators]
-            self.sector = Preprocessor(sector).clean().add_indicators().df[BASE_COLUMNS + indicators]
+            self.sector = Preprocessor(sector).clean().add_indicators().df[TD + indicators]
             market_code = self.get_market(r.code)
             market = self.dataworker.latest(market_code, ktype="d", days = days)
-            self.market = Preprocessor(market).clean().add_indicators().df[BASE_COLUMNS + indicators] # 大盘日线 [indicators]
+            self.market = Preprocessor(market).clean().add_indicators().df[TD + indicators] # 大盘日线 [indicators]
             # self.stock_matrices = [x.values for x in stock.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
             # self.sector_matrices = [x.values for x in sector.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
             # self.market_matrices = [x.values for x in market.rolling(window_size)][window_size-1:] # 获得rolling的矩阵

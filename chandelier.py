@@ -5,13 +5,10 @@
 '''
 Chandelier Exit https://corporatefinanceinstitute.com/resources/equities/chandelier-exit/
 
-The formulas for the two lines are as follows:
 - Chandelier Exit Long: n-day Highest High – ATR (n) x Multiplier
 - Chandelier Exit Short: n-day Lowest Low + ATR (n) x Multiplier
 
-Where:
-- $n$ is the default unit period of 22 or the number that the trader chooses.
-- The multiplier is the default 3 Average True Range.
+where: $n$ = 22 , multiplier = 3 by default 3.
 '''
 
 import numpy as np

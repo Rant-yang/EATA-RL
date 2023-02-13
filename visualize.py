@@ -4,11 +4,11 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import cufflinks as cf
 import pandas as pd
-import numpy as np
-from datetime import datetime
-from data_work import DataStorage
-from predict import MODEL_PATH, WatchList, Predictor
-import sqlite3
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+
+obj = "Bandwagon"
+summary = 'evaluated.csv'
 
 def load_css(file_name:str = "streamlit.css")->None:
     """
@@ -17,111 +17,84 @@ def load_css(file_name:str = "streamlit.css")->None:
     with open(file_name) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
+
 class WebServer:
-    '''
-        从上到下展示图表：
-        · WatchList的最新预测，表格 [date,ticker,name,action in (buy,hold,sell)]， 取最后一日的结果 wl[-1]
-        · WatchList的最新预测，半年股价图：x: date, y = close price， 叠加landmark和action 
+    def __init__(self):
+        # obj = sys.argv[1] if len(sys.argv)>=2 else "Bandwagon" # 目录名称
+        files = os.listdir(f'{obj}')  # 目录下所有文件
+        files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
+        files.remove(summary) if summary in files else files
+        print(f"Testing strategy {obj} with {files}")
+        self.perf = pd.read_csv(f'{obj}/{summary}', index_col= 0)
+        self.dfs = [pd.read_csv(f'{obj}/{f}', index_col=0) for f in files]
 
-        · 上一轮（episode/股票）的训练结果：x : date, y: close price 叠加landmark和action。
-        · 上一轮（episode/股票）的训练结果：x : date, y: reward
-        · 上一轮（episode/股票）的训练结果：x : date, y: asset增长比例
-        · 上述3个图取最近半年详细显示
-        
-        · 历史以来的reward增长：x = epsisode，y : reward
-        · 历史以来的asset增长：x = epsisode，y : asset_percent_change
-        · 上述2个图取最近半年详细显示
-        · 历史以来的操作记录df.columns = ['date','ticker','landmark','close','action','reward','asset_pct_change']
-          >  这里的asset_pct_change是相比于上次动作的资产变化，asset_pct_change = df.close.diff()/close，如果为下跌并且action正确得换正号
-          >  总资产的变化应当动态计算 total_change = reduce(lambda a,b:1+b, d.asset_pct_change)
-    '''
-    def load(self,from_table:str) -> pd.DataFrame:
-        return pd.read_sql('SELECT * FROM %s'% from_table, con = self.conn,index_col='index')
+    def process(self, df):
+        df = df.tail(200)   #选最后200交易日的数据，避免最后做出的图过于拥挤。也可以将天数作为初始参数之一
+        self.df = df
+        self.data_all = df.shape[0]
+        # self.df2 = self.df.set_index('date')   #使用streamlit接口画图需要以date作为索引
+        self.ticker = df.ticker.iloc[0]
+        self.record = str(df.shape[0])  # 一共几天交易日的数据
 
-    def save(self, df:pd.DataFrame, to_table:str, if_exists='replace'):
-        return df.to_sql(name=to_table,con = self.conn, if_exists = if_exists)
+        # 乘上close，使两天资产线和股票的收盘价线同一起点
+        df['change_wo_short'].iloc[0] = 1  # 第一行赋值为1，以这个为起点，后面是相对于上一天比率
+        df['change_w_short'].iloc[0] = 1    
+        self.asset_wo_short = df.close.iloc[0] * df.change_wo_short.cumprod()
+        self.asset_w_short = df.close.iloc[0] * df.change_w_short.cumprod()
 
-    def __init__(self) -> None:
-        self.conn = sqlite3.connect('stock.db')
-        self.ds = DataStorage()
-        self.predicted = self.ds.load_predicted() # watchlist_actions columns = ['ticker','date','close','action']
-        self.watchlist_trend = Predictor(MODEL_PATH, WatchList).watchlist_trend()  # watchlist_trend.columns = ['ticker','date','close','landmark']
 
-        # evaluated.columns = ['date','ticker','landmark','close','action','reward','asset_pct_chg'] 
-        self.evaluated = self.ds.load_evaluated() # for price/reward/asset plotting
-        # action_history结构和evaluated一样，但去掉了action==0的记录，供长期保存
-        self.action_history = self.ds.load_action_history() 
-        # train_history.columns =  ['episode','ticker','train_date','mean','std','asset_change']
-        self.train_history = self.ds.load_train_history()
+        # 计算最后一天的资产
+        self.asset_wo = df.close.iloc[0]* self.asset_wo_short.iloc[-1]      #不做空 最新一日资产
+        # self.chg_wo = round(df.change_wo_short.iloc[-1],2)
+        self.asset_w = df.close.iloc[0]* self.asset_w_short.iloc[-1]     #做空 最新一日资产
+        # self.chg_w = round(df.change_w_short.iloc[-1],2)
 
-        # self.df = pd.DataFrame(np.random.randn(1000, 6), columns=['date','ticker','landmark','close','action','reward']).cumsum()
-        # length = len(self.df)
-        # self.df[['date']] = datetime.now().strftime("%Y-%m-%d")
-        # self.df[['ticker']] = 'SZ.600283'
-        # self.df[['action']] = np.random.choice([-1,0,1], (length,1)) 
+        # 分别挑出action为买或卖的收盘价，以便于画图标注
+        test = df.real_action * df.close
+        self.buy_actions = test.apply(lambda x: x if x>0 else None)     # sell的位置为None，维持序列长度不变
+        self.sell_actions = test.apply(lambda x: -x if x<0 else None)   # buy的位置为None，维持序列长度不变
+        # self.buy_actions = [t for t in test if t>0]
+        # self.sell_actions = [-t for t in test if t<0]
 
-        # self.df2 = pd.DataFrame(np.random.randn(100, 4), columns=['date','ticker','close','action']).cumsum()
-        # length2 = len(self.df2)
-        # self.df2[['date']] = datetime.now().strftime("%Y-%m-%d")
-        # self.df2[['ticker']] = 'SZ.600283'
-        # self.df2[['name']] = np.random.rand(length2,1) * 2 -1
-        # self.df2[['action']] = np.random.choice([-1,0,1], (length2,1)) 
-    
+        self.tick_spacing = 10 #设置横坐标日期的间隙，避免重叠
+
 
     def run(self):
-        # st.set_page_config(
-        #     page_title="Ex-stream-ly Cool App",
-        #     page_icon="🧊",
-        #     layout="wide",
-        #     initial_sidebar_state="expanded",
-        #     menu_items={
-        #         'Get Help': 'https://www.extremelycoolapp.com/help',
-        #         'Report a bug': "https://www.extremelycoolapp.com/bug",
-        #         'About': "# This is a header. This is an *extremely* cool app!"
-        #     }
-        # )
-        selected = option_menu("RL Market Timing", ["WatchList", 'Latest',"History"], 
-                icons=['house', 'gear','palette'], menu_icon="cast", default_index=1,  orientation="horizontal")
-        st.title("RL Market Timing")
-        st.metric(label="Current Jobs", value="retrieving SH.000234", delta="323 records")
-        col1, col2 = st.columns(2)
-        col1.metric(label="Reward", value="0.902342", delta="+0.3")
-        col2.metric(label="Assets", value="$7,000,000", delta="+1200")
-        st.header("WatchList - ACTIONS")
-        df = self.df2[['date','ticker','action']]
-        df[['action']] = df[['action']].applymap(lambda x:{-1:"sell",0:"hold",1:"buy"}[x])
-        st.table(df.sample(4))  # watchlist table, .write(), .table(), .dataframe()
-        # 下面两行都可以，绘图软件尝试换成plotnine
-        # fig = df.iplot(asFigure=True,subplots=True,shape=(3,2),mode='lines+markers',theme='ggplot')
-        fig = self.df[-100:][['close','action','reward']].figure(subplots=True,shape=(3,1),mode='lines+markers',theme='ggplot') 
-        st.plotly_chart(fig)
-        st.header("WatchList - Last 6 months")
-        st.line_chart(self.df[-50:]['close'])
-        st.header("Latest Training - PRICE & ACTIONS")
-        st.line_chart(self.df['close'])
-        st.header("Latest Training - REWARDS")
-        st.line_chart(self.df['close'])
-        st.header("Latest Training - ASSET GROWTH")
-        st.line_chart(self.df['close'])
-        st.header("Latest Training - PRICE & ACTIONS in last 6 months")
-        st.line_chart(self.df[-50:]['close'])
-        st.header("Latest Training - REWARDS in last 6 months ")
-        st.line_chart(self.df[-50:]['close'])
-        st.header("Latest Training - ASSET GROWTH in last 6 months")
-        st.line_chart(self.df[-50:]['close'])
-        st.header("History - REWARDS")
-        st.line_chart(self.df['close'])
-        st.header("History - ASSET GROWTH")
-        st.line_chart(self.df['close'])
-        st.header("History - REWARDS in last 6 months")
-        st.line_chart(self.df['close'])
-        st.header("History - ASSET GROWTH in last 6 months")
-        st.line_chart(self.df['close'])
-        st.header("History - Actions Table")
-        st.dataframe(df)
+        st.title(f"Testing {obj}")
+        st.header("Summary")
+        st.dataframe(self.perf)
 
+        for df in self.dfs:
+            self.process(df)
+            # st.subheader("CLOSE & ASSET GRAPH")
+            st.metric(label="Ticker", value = self.ticker, delta = self.record +'records')
+
+            # 年化利率计算
+            col1, col2 = st.columns(2)
+            col1.metric(label="Annual return - Short",
+                        value = round(self.asset_w / self.data_all * 250, 2)) #一年的交易日250天
+            col2.metric(label="Annual return - No Short",
+                        value = round(self.asset_wo / self.data_all * 250, 2))
+
+            # 画图 close+asset+action：左边close，右边asset
+            fig = plt.figure(figsize=(15,8))
+            ax1 = fig.add_subplot(111)
+            ax1.plot(self.df.date, self.asset_wo_short, 'm-.', label="without short")
+            ax1.plot(self.df.date, self.asset_w_short, 'g-', label="with short")
+            ax1.legend(loc=1)
+            ax1.set_ylabel('Assets change/Close')
+
+            ax2 = ax1 #.twinx()
+            ax2.plot(self.df.date, self.df.close, 'k', label = "Price")
+            ax2.fill_between(self.df.date, self.df.close.min(), self.df.close, color = 'b', alpha = 0.1)
+            ax2.scatter(self.df.date, self.buy_actions, label='buy', color='red', marker="^")
+            ax2.scatter(self.df.date, self.sell_actions, label='sell', color='green', marker ="v")
+            ax2.legend(loc=2)
+            ax2.set_xticklabels(labels=self.df.date, rotation=90) #不知道为旋转的变化显示不出来
+            ax2.xaxis.set_major_locator(ticker.MultipleLocator(self.tick_spacing))
+            # ax2.set_ylabel('Close')
+            ax2.set_xlabel('Date')
+            st.pyplot(fig)
 
 if __name__=='__main__':
-    app = WebServer()
-    load_css()
-    app.run()
+    WebServer().run()

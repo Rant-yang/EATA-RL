@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import sys
 
 class Evaluator():
     '''
@@ -13,6 +14,7 @@ class Evaluator():
 
     def __init__(self, df, predicted=None, episode=None ):
         self.df = df
+        self.evaluated = pd.DataFrame(columns = ['ticker','tp','fp','tn','fn','accuracy','precision','recall','f1_score','tpr','fpr','annual_return'])
 
     def asset_change(self) -> pd.DataFrame:
         ''' calculate asset change by percent at each action
@@ -37,10 +39,8 @@ class Evaluator():
 
         actioned = self.df[self.df.action.isin([1,-1])]
         actioned = reduce_same(actioned)
+        self.df["real_action"] = self.df.apply(lambda x: x.action if x.name in actioned.index else 0, axis = 1)
 
-        d1, d2 = actioned.iloc[:-1].index, actioned.iloc[1:].index  # 获取索引并配对拼接
-        df["change_wo_short"] = 1  
-        df["change_w_short"] = 1   
 
         def func(x,y):  
             '''add columns `without_short` and `with_short`'''
@@ -51,11 +51,17 @@ class Evaluator():
             self.df.loc[x:y, 'change_w_short'] = \
                 self.df.close/self.df.close.shift(1) if self.df.iloc[x].action == 1 else self.df.close.shift(1)/self.df.close
 
+        d1, d2 = actioned.iloc[:-1].index, actioned.iloc[1:].index  # 获取索引并配对拼接
+        self.df["change_wo_short"] = 1  
+        self.df["change_w_short"] = 1   
         [func(x,y) for (x,y) in zip(d1,d2)]
 
-        # df.change1.plot(kind="hist")
-        self.df['asset_wo_short'] = self.df.change_wo_short.cumprod()  # 不做空情况下资产变化曲线
-        self.df['asset_w_short'] = self.df.change_w_short.cumprod()  # 不做空情况下资产变化曲线
+        # 补齐第一行的Nan
+        self.df[['change_wo_short','change_w_short']] = self.df[['change_wo_short','change_w_short']].fillna(1)
+        # self.df[['change_wo_short','change_w_short','asset_wo_short','asset_w_short']] \
+        #     = self.df[['change_wo_short','change_w_short','asset_wo_short','asset_w_short']].fillna(1)
+        # self.df['asset_wo_short'] = self.df.change_wo_short.cumprod()  # 不做空情况下资产变化曲线
+        # # self.df['asset_w_short'] = self.df.change_w_short.cumprod()  # 不做空情况下资产变化曲线
         return self
 
     def class_perf(self):
@@ -72,24 +78,21 @@ class Evaluator():
         f1_score = 2*precision*recall/(precision+recall)
         tpr = recall
         fpr = fp/(fp+tn)
-        self.evaluated[['ticker']] = self.df.iloc[0].ticker
-        self.evaluated[['tp','fp','tn','fn']] = tp,fp,tn,fn
-        self.evaluated[['accuracy','precision','recall','f1_score','tpr','fpr']] = accuracy, precision, recall, f1_score, tpr, fpr
-        self.evaluated[['annual_return']] = 0
-
+        self.evaluated.loc[len(self.evaluated)] = [self.df.iloc[0].ticker,tp,fp,tn,fn,accuracy, precision, recall, f1_score, tpr, fpr,0]
         return self.evaluated
 
-
 if __name__ == "__main__":
-    files = os.listdir()  # 目录下所有文件,
+    obj = sys.argv[1] if len(sys.argv)>=2 else "Bandwagon" # 目录名称
+    files = os.listdir(f"{obj}")  # 目录下所有文件,
     files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
-    print(f"Examing experiments on {files}")
+    files.remove('evaluated.csv') if 'evaluated.csv' in files else files
+    print(f"Evaluating strategy {obj} with {files}")
     df_list = pd.DataFrame()
     for f in files: 
-        df = pd.read_csv(f, index_col=0)
+        df = pd.read_csv(f"{obj}/"+f, index_col=0)
         ev = Evaluator(df)
-        ev.asset_change().df.to_csv(f)  # 保存asset_change()的结果到原f 
+        ev.asset_change().df.to_csv(f"{obj}/"+f)  # 保存asset_change()的结果到原f 
         performance = ev.class_perf()   # 返回class_perf()的结果给performance
         df_list = df_list.append(performance)   # 
 
-    df_list.to_csv('evaluated.csv')
+    df_list.to_csv(f'{obj}/evaluated.csv')
