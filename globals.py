@@ -15,16 +15,23 @@ flex = Flex(-1,0,1)
 #%% 
 WINDOW_SIZE = 20
 
-#%% fields needed
+#%% prefix
 DATE_FORMAT = "%Y-%m-%d"
 MARKET_PREFIX = "mkt_"
 ETF_PREFIX = "etf_"
 SECTOR_PREFIX = "sct_"
-#%%
+#%% column definitions
 TD = ['ticker', 'date']
 TDT = ['ticker', 'date','time']
 OCLHVA = ['open',  'high', 'low', 'close', 'volume', 'amount']
 Normed_OCLHVA = [x+"_" for x in OCLHVA]     # normalized ohlcva
+MKT_OCLHVA = OCLHVA 
+mkt_oclhva_normed = [MARKET_PREFIX+x for x in Normed_OCLHVA]
+
+REWARD = ['buy_reward', 'hold_reward', 'sell_reward']
+WEEKDAY = ['dayofweek']
+
+# indicators collection
 # indicators = ['kdjk', 'kdjd', 'kdjj', "rsi_6", "rsi_12", "rsi_24",'cr',"boll","boll_ub","boll_lb","wr_10","wr_6","cci","dma"] # 14
 # indicators = ['kdjk', 'kdjd', 'kdjj', "rsi_6", "rsi_12", "rsi_24","macd","atr"] # https://github.com/jealous/stockstats
 # "MFI","EMV","VR","PSY","OBV" are volume-concerned indicators
@@ -33,14 +40,8 @@ Normed_OCLHVA = [x+"_" for x in OCLHVA]     # normalized ohlcva
 indicators = ['close_5_ema', 'close_10_ema','rsi','atr'] # https://github.com/jealous/stockstats
 mkt_indicators = [MARKET_PREFIX+x for x in indicators]
 sct_indicators = [SECTOR_PREFIX+x for x in indicators]
-MKT_OCLHVA = OCLHVA 
-mkt_oclhva_normed = [MARKET_PREFIX+x for x in Normed_OCLHVA]
-REWARD = ['buy_reward', 'hold_reward', 'sell_reward']
-WEEKDAY = ['dayofweek']
 
 #%%
-import baostock
-baostock.login(user_id="anonymous", password="123456")
 
 import tushare as ts
 TS_TOKEN = "72d1e47c3b0728a26bfc4a9f54132b195890fa843815f896708515f1"
@@ -57,3 +58,6 @@ BAOSTOCK_MAPPING = {"code":"ticker"}
 
 SH50Index = "000016" # 上证50指数代码
 SH50ETF = "510050" # 上证50ETF代码
+
+summary = 'evaluated.csv'   # 统计文件名称
+test_result = "Test"    # 测试结果存放目录

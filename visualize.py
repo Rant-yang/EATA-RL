@@ -1,14 +1,9 @@
-import sys,os
-sys.path.append(os.getcwd())
+import os
 import streamlit as st
-from streamlit_option_menu import option_menu
-import cufflinks as cf
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-
-obj = "Bandwagon"
-summary = 'evaluated.csv'
+from globals import summary, test_result
 
 def load_css(file_name:str = "streamlit.css")->None:
     """
@@ -20,13 +15,16 @@ def load_css(file_name:str = "streamlit.css")->None:
 
 class WebServer:
     def __init__(self):
-        # obj = sys.argv[1] if len(sys.argv)>=2 else "Bandwagon" # 目录名称
-        files = os.listdir(f'{obj}')  # 目录下所有文件
+        dirs = os.listdir(f"{test_result}")  # Test目录下的子目录
+        self.agents = [d for d in dirs if not os.path.isfile(d)]
+        self.obj = self.agents[2]    # 这行开始改成循环
+        files = os.listdir(f'{test_result}/{self.obj}')  # 目录下所有文件
         files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
         files.remove(summary) if summary in files else files
-        print(f"Testing strategy {obj} with {files}")
-        self.perf = pd.read_csv(f'{obj}/{summary}', index_col= 0)
-        self.dfs = [pd.read_csv(f'{obj}/{f}', index_col=0) for f in files]
+        print(f"Testing strategy {self.obj} with {files}")
+        self.perf = pd.read_csv(f'{test_result}/{self.obj}/{summary}', index_col= 0)
+        self.dfs = [pd.read_csv(f'{test_result}/{self.obj}/{f}', index_col=0) for f in files]
+        # 下一步改为根据agents，遍历指定目录
 
     def process(self, df):
         df = df.tail(200)   #选最后200交易日的数据，避免最后做出的图过于拥挤。也可以将天数作为初始参数之一
@@ -60,14 +58,15 @@ class WebServer:
 
 
     def run(self):
-        st.title(f"Testing {obj}")
+        st.title(f"Testing {self.obj}")
         st.header("Summary")
         st.dataframe(self.perf)
+        [st.sidebar.text(a) for a in self.agents]
 
         for df in self.dfs:
             self.process(df)
             # st.subheader("CLOSE & ASSET GRAPH")
-            st.metric(label="Ticker", value = self.ticker, delta = self.record +'records')
+            st.metric(label="Ticker", value = self.ticker, delta = 'latest '+ self.record +' days')
 
             # 年化利率计算
             col1, col2 = st.columns(2)
@@ -85,7 +84,7 @@ class WebServer:
             ax1.set_ylabel('Assets change/Close')
 
             ax2 = ax1 #.twinx()
-            ax2.plot(self.df.date, self.df.close, 'k', label = "Price")
+            ax2.plot(self.df.date, self.df.close, 'b', label = "Price", alpha=0.1)
             ax2.fill_between(self.df.date, self.df.close.min(), self.df.close, color = 'b', alpha = 0.1)
             ax2.scatter(self.df.date, self.buy_actions, label='buy', color='red', marker="^")
             ax2.scatter(self.df.date, self.sell_actions, label='sell', color='green', marker ="v")

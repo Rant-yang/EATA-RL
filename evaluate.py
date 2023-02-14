@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import sys
 
+
 class Evaluator():
     '''
         dataworker获取raw的部分；preprocessor添加了一部分如landmark和若干技术指标用于embedding；trainer添加了['action','reward']
@@ -81,18 +82,21 @@ class Evaluator():
         self.evaluated.loc[len(self.evaluated)] = [self.df.iloc[0].ticker,tp,fp,tn,fn,accuracy, precision, recall, f1_score, tpr, fpr,0]
         return self.evaluated
 
+from globals import test_result, summary
 if __name__ == "__main__":
-    obj = sys.argv[1] if len(sys.argv)>=2 else "Bandwagon" # 目录名称
-    files = os.listdir(f"{obj}")  # 目录下所有文件,
+    dirs = os.listdir(f"{test_result}")  # Test目录下的子目录
+    dirs = [d for d in dirs if not os.path.isfile(d)]
+    obj = dirs[0]   # 从这里改成循环
+    files = os.listdir(f"{test_result}/{obj}")  # 目录下所有文件,
     files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
-    files.remove('evaluated.csv') if 'evaluated.csv' in files else files
+    files.remove(summary) if summary in files else files
     print(f"Evaluating strategy {obj} with {files}")
     df_list = pd.DataFrame()
     for f in files: 
-        df = pd.read_csv(f"{obj}/"+f, index_col=0)
+        df = pd.read_csv(f"{test_result}/{obj}/{f}", index_col=0)
         ev = Evaluator(df)
-        ev.asset_change().df.to_csv(f"{obj}/"+f)  # 保存asset_change()的结果到原f 
+        ev.asset_change().df.to_csv(f"{test_result}/{obj}/{f}")  # 保存asset_change()的结果到原f 
         performance = ev.class_perf()   # 返回class_perf()的结果给performance
         df_list = df_list.append(performance)   # 
 
-    df_list.to_csv(f'{obj}/evaluated.csv')
+    df_list.to_csv(f'{test_result}/{obj}/{summary}')

@@ -9,7 +9,6 @@
 5. `visualize` the evaluated result (in visualize.py)
 '''
 from env import StockmarketEnv
-from bandwagon import Bandwagon as agent     # 换其他模型，只需要修改这句。例如 from chandelier import ChandelierExit as agent
 from datetime import datetime
 import pandas as pd
 from tqdm import trange
@@ -37,9 +36,10 @@ def check_and_make_directories(directories: list[str]):
 #%%
 import importlib
 import sys
+from bandwagon import Bandwagon as agent     # 换其他模型，只需要修改这句。例如 from chandelier import ChandelierExit as agent
+from globals import test_result
 
 if __name__ == "__main__":
-    # agent = importlib.import_module(sys.argv[2])
     obj = agent.__name__    # 测试对象名称
     print(f"Testing {obj}")
     today = datetime.today().strftime("%Y%m%d.%H%M")   # make sure it does not go beyond to the next day
@@ -49,5 +49,5 @@ if __name__ == "__main__":
         # print(f"#{i} processing {row.code} {row['name']}")
         result = run(row, days= 2000)   
         check_and_make_directories([obj])
-        result.to_csv(f"{obj}/{today}{row.code}.csv")
+        result.to_csv(f"{test_result}/{obj}/{today}{row.code}.csv")
     print(f"Test done. check the folder {obj}")
