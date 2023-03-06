@@ -18,22 +18,22 @@ class WebServer:
     def __init__(self):
         dirs = os.listdir(f"{test_result}")  # Test目录下的子目录
         self.agents = [d for d in dirs if not os.path.isfile(d)]
-        self.obj = self.agents[2]    # 这行开始改成循环，即可遍历目录下所有的策略的测试结果
+        self.obj = self.agents[0]    
+        self.get_folder()
 
+    def get_folder(self):
         data_folder = Path(f"{test_result}/{self.obj}")
         files = os.listdir(data_folder)  # 目录下所有文件
         files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
-        files.remove(summary) if summary in files else files
-        print(f"Testing strategy {self.obj} with {files}")
+        files.remove(summary) if summary in files else None
+        print(f"Visualizing strategy {self.obj} with {files}")
         self.perf = pd.read_csv(data_folder/f'{summary}', index_col= 0)
         self.dfs = [pd.read_csv(data_folder/f'{f}', index_col=0) for f in files]
         # 下一步改为根据agents，遍历指定目录
 
     def process(self, df, days = 250):
-        d = df.copy().tail(days)   #选最后250交易日的数据(大致1年），避免最后做出的图过于拥挤。
-        d['date'] = pd.to_datetime(d.date)
+        d = df.tail(days)   #选最后250交易日的数据(大致1年），避免最后做出的图过于拥挤。
         self.data_all = d.shape[0]
-        # self.df2 = self.df.set_index('date')   #使用streamlit接口画图需要以date作为索引
         self.ticker = d.ticker.iloc[0]
         self.record = str(d.shape[0])  # 一共几天交易日的数据
 
@@ -43,43 +43,40 @@ class WebServer:
         self.asset_wo_short = d.close.iloc[0] * d.change_wo_short.cumprod()
         self.asset_w_short = d.close.iloc[0] * d.change_w_short.cumprod()
 
+        # calculate annual return here 
+        self.asset_wo = self.asset_wo_short.iloc[-1]      #不做空 最新一日资产
+        self.asset_w =  self.asset_w_short.iloc[-1]     #做空 最新一日资产
 
-        # 计算最后一天的资产
-        self.asset_wo = d.close.iloc[0]* self.asset_wo_short.iloc[-1]      #不做空 最新一日资产
-        # self.chg_wo = round(df.change_wo_short.iloc[-1],2)
-        self.asset_w = d.close.iloc[0]* self.asset_w_short.iloc[-1]     #做空 最新一日资产
-        # self.chg_w = round(df.change_w_short.iloc[-1],2)
+        # 分别挑出action为买或卖，目的是为了做区间绘图
+        d['last_action'] = d['action'].shift(1) # (action, 昨天的action)
+        self.action_days = d[d.action != d.last_action][['date','action']] 
+        # self.action_days['date'] = pd.to_datetime(self.action_days.date)    # 改成datetime，才能和self.df.date比较
+        self.action_days['next_day'] = self.action_days.date.shift(-1)      # (.date, .next_day) 确定了灰底的范围
+        self.action_days['next_day'].fillna(d.iloc[-1].date, inplace = True) # 用d最后一行的date补齐最后一行的空值
 
-        # 分别挑出action为买或卖的收盘价，以便于画图标注
-        self.action_days = d[d.real_action.isin([1,-1])] # `date` is the index
-
-        # test = d.real_action * d.close
-        # self.buy_actions = test.apply(lambda x: x if x>0 else None)     # sell的位置为None，维持序列长度不变
-        # self.sell_actions = test.apply(lambda x: -x if x<0 else None)   # buy的位置为None，维持序列长度不变
-        # self.buy_ = d[d.real_action== 1]
-        # self.sell_ = d[d.real_action== -1]
-
-        self.tick_spacing = 10 #设置横坐标日期的间隙，避免重叠
         self.df = d
 
     def run(self):
-        from itertools import count
-        st.title(f"Testing {self.obj}")
+        self.obj = st.sidebar.radio('Choose one',self.agents)
+        self.get_folder()
+
+        st.title(f"Performance of {self.obj}")
         st.header("Summary")
+
         # histograms of metrics in a 2*3 grid
         f,axes = plt.subplots(nrows=2,ncols=3,figsize=(15,8))
         my_list = ['accuracy','precision','recall', 'f1_score', 'fpr','annual_return']
+        from itertools import count
         for i,m in zip(count(start = 0, step = 1), my_list):
-            f.axes[i].hist(self.perf[m], bins = 50, alpha = 0.5) 
+            f.axes[i].hist(self.perf[m], bins = 20, alpha = 0.5) 
             f.axes[i].set_title(m)
         st.pyplot(f)
 
+        # assisted with a dataframe
         st.dataframe(self.perf)
         print(self.perf)
         
-
-        [st.sidebar.text(a) for a in self.agents]
-
+        # 对单个股票做图
         for df in self.dfs:
             self.process(df)
             # st.subheader("CLOSE & ASSET GRAPH")
@@ -96,6 +93,7 @@ class WebServer:
             floor = min(self.df.close.min(), self.asset_w_short.min(), self.asset_wo_short.min())
             ceiling = max(self.df.close.max(), self.asset_w_short.max(), self.asset_wo_short.max())
 
+            self.df['date'] = pd.to_datetime(self.df.date)  # 不转成datetime类型x轴会很拥挤
             # 画图 close+asset+action
             fig = plt.figure(figsize=(15,8))
             ax1 = fig.add_subplot(111)
@@ -106,21 +104,19 @@ class WebServer:
             ax2 = ax1 #.twinx()
             ax2.plot(self.df.date, self.df.close, 'b', label = "Price", alpha=0.1)
             ax2.fill_between(self.df.date, floor, self.df.close, color = 'b', alpha = 0.1)
-            
-            # 1 采用灰底来表示做空时间，白底做多
-            d1, d2 = self.action_days.iloc[:-1], self.action_days.iloc[1:]  # 获取索引并配对拼接
-            for (a,b) in zip(d1.iterrows(),d2.iterrows()):
-                if a[1].real_action == -1:
-                    ax2.fill_between(self.df.date, floor, ceiling, (a[1].date <self.df.date) & (self.df.date<b[1].date), color = "k", alpha = 0.1)
 
-            # 2 用^v在close上标记买入或卖出
-            # ax2.scatter(self.df.date, self.buy_actions, label='buy', color='red', marker="^")
-            # ax2.scatter(self.df.date, self.sell_actions, label='sell', color='green', marker ="v")
+            # 采用灰底来表示做空时间，白底做多
+            def plot_range(x):
+                if x.action == -1:  # 区间起点为跌
+                    ax2.fill_between(self.df.date, floor, ceiling, (x.date <self.df.date) & (self.df.date< x.next_day), color = "k", alpha = 0.1)
 
+            self.action_days.apply(plot_range, axis = 1)
+            # ---------
             ax2.legend(loc=2)
             # ax2.set_ylabel('Close')
             ax2.set_xlabel('Date')
             st.pyplot(fig)
+            plt.close()
 
 if __name__=='__main__':
     WebServer().run()

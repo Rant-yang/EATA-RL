@@ -38,7 +38,7 @@ def check_and_make_directories(directories: list[str]):
             os.makedirs("./" + directory)
 #%%
 from globals import test_result
-from bandwagon import Bandwagon as agent     # 换其他模型，只需要修改这句。例如 from chandelier import ChandelierExit as agent
+from chandelier import Chandelier as agent     # 换其他模型，只需要修改这句。例如 from chandelier import ChandelierExit as agent
 from pathlib import Path
 
 if __name__ == "__main__":
@@ -54,4 +54,11 @@ if __name__ == "__main__":
         check_and_make_directories([str(data_folder)])
         file_to_open = data_folder / f"{today}{row.code}.csv"
         result.to_csv(file_to_open)
-    print(f"Test done. check the folder {obj}")
+        # or we do evaluation here
+        # from evaluate import Evaluator
+        # ev = Evaluator(df)
+        # ev.asset_change().df.to_csv(file_to_open)  # 保存asset_change()的结果到原f 
+
+    print(f"Test done. Check the folder {obj}")
+    os.system(f"python3 evaluate.py {obj}")
+    print("Evaluation done. Check the visualizer")

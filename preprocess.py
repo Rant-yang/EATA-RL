@@ -20,6 +20,10 @@ class Preprocessor():
         self.normalization = 'div_pre_close' # 'div_pre_close' | 'div_self' |'standardization' | 'z-score' 
         # 注：最后进行embedding的是[*tech_indicator_list，*Normed_OCLHVA] 这几个字段
         self.windowsize = WINDOW_SIZE
+    
+    def load(self,df:pd.DataFrame):
+        ''' I am considering a lazy load of dataframe to be processed, which previously in __init__()'''
+        self.df = df
 
     def clean(self,df:pd.DataFrame = None):
         return self.__clean_baostock__(df)
@@ -85,12 +89,12 @@ class Preprocessor():
         days = list(set(actual_trade_days.calendar_date) - set(df.date))
         if days:   # list `days` is not empty
             print(f"empty days found, filling with interpolation")
-            df = df.append(pd.DataFrame({'date':days,'ticker':df.ticker[0]}))
+            df = df.append(pd.DataFrame({'date':days,'ticker':df.ticker.iloc[0]}))
             df.sort_values(by="date", inplace=True)
             df.reset_index(inplace=True, drop=True)
 
         df.interpolate(inplace=True)
-        self.df = df
+        self.df = df[df.date.isin(actual_trade_days.calendar_date)]   
         return self
 
 
@@ -100,7 +104,9 @@ class Preprocessor():
         sdf = StockDataFrame(df.copy())  # sdf adds some unneccessary fields inplace, fork a copy for whatever it wants to doodle
         # x = sdf[indicators] # [['close_5_ema', 'close_10_ema','rsi']]
         self.df[indicators] = sdf[indicators] #/100 # d/5 - 10的效果反而不好, 不知道为什么
-        self.df = self.df.dropna()    # 一旦dropna()，单行数据的indicators基本上是nan
+        self.df['macdv'] = (sdf['macd'] - sdf['macd_9_ema'])/sdf['macd_9_ema']
+        # self.df = self.df.dropna()    # 一旦dropna()，单行数据的indicators基本上是nan
+        self.df.interpolate(inplace= True)   # 替代上面一行
         return self
 
     def normalize(self,df= None):
@@ -167,7 +173,7 @@ class Preprocessor():
         self.df = df.dropna()
         return self
     
-    def add_reward_(self, df:pd.DataFrame = None)->pd.DataFrame:
+    def add_reward_(self, df:pd.DataFrame = None):
         '''attach reward to the df once for all, no more calculation on the fly
         requirement: df has a `landmark` column
         '''
@@ -206,12 +212,8 @@ class Preprocessor():
         return self
 
 
-    def bundle_process(self, if_market=None):
-        if if_market: 
-            self.normalize()
-        else:
-            self.clean().fill_empty_days().landmark().add_reward_().add_indicators() 
-        
+    def bundle_process(self):
+        self.clean().fill_empty_days().landmark().add_reward_().add_indicators() 
         return self.df
     
     def load(self):

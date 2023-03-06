@@ -38,6 +38,7 @@ indicators += ["macds","macdh","atr","vr","adx"]
 indicators += ['close_5_ema', 'close_10_ema'] 
 mkt_indicators = [MARKET_PREFIX+x for x in indicators]
 sct_indicators = [SECTOR_PREFIX+x for x in indicators]
+indicators_plus = ['macdv']
 
 #%%
 

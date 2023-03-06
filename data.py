@@ -186,7 +186,7 @@ class BaostockDataWorker(DataWorker):
         df : the dataframe to retrieve min,max date
         requires `df` has a string or datetime column `date`
         '''
-        assert 'date' in df.columns, "`df` has a string or datetime column `date`"
+        assert 'date' in df.columns, "`df` must have a string or datetime column `date`"
         n, x = df.date.min(), df.date.max()
         trade_days = self.calendar       
         date_filter = (n <= trade_days.calendar_date) & (trade_days.calendar_date <= x)

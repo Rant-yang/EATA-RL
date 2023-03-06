@@ -17,6 +17,7 @@ from datetime import datetime
 from data import BaostockDataWorker
 from preprocess import Preprocessor
 import pysnooper
+from globals import WINDOW_SIZE
 
 class BaseAgent():
     pass
@@ -28,7 +29,7 @@ class Chandelier(BaseAgent):
         # 对于“所属板块的指数代码”，如果该股票实在找不到对应的板块或者无法获取其代码，可以用大盘的指数来代替。
         self.stock_list = df
         self.dataworker = BaostockDataWorker()
-        self.window_size = 20
+        self.window_size = WINDOW_SIZE
 
         def __prepare__(s:pd.Series, ktype='5')-> pd.DataFrame:
             # 获取所有股票当天的数据，这样其他函数只需要做计算即可。days取win_size的3倍，应该足够做一些ma,diff,dropna等操作了
@@ -100,9 +101,9 @@ class Chandelier(BaseAgent):
         - 大盘量能：根据大盘的强弱打分，权重20%；
         - 股票惯性：根据股票昨天的涨跌打分，权重20%.
         '''
-        self.stock_list['stock_strength'] = [self.criteria(d) for d in self.stocks_datum]   # 股票量能
-        self.stock_list['sector_strength'] =[self.criteria(s) for s in self.sectors_datum]  # 板块量能
-        x = [self.criteria(m) for m in self.market_datum] # 与self.market_codes 一一对应
+        self.stock_list['stock_strength'] = [self.c1(d) for d in self.stocks_datum]   # 股票量能
+        self.stock_list['sector_strength'] =[self.c2(s) for s in self.sectors_datum]  # 板块量能
+        x = [self.c3(m) for m in self.market_datum] # 与self.market_codes 一一对应
         # 计算大盘量能并拼接，这里可以考虑用transform()?
         # 根据指数代码market对应大盘的指数代码code，进行连接
         # y = pd.DataFrame({'market':self.market_codes, 'market_strength':x}) # 拼成一个df
@@ -140,26 +141,58 @@ class Chandelier(BaseAgent):
         return a
     
     @staticmethod
-    def criteria(d:pd.DataFrame)->int:
+    def c0(d:pd.DataFrame)->int:
         '''
+        corresponds to s0。用Chandelier公式，但用的是5分钟线的均值
         @input d: window_size的df
         @output : 根据其最后一行的计算返回1/0, simple enough
         '''
-        r = d.iloc[-1]
-        return 1 if r.close_5_ema>r.close_10_ema and r.rsi >50 else -1
+        return 1
+    
+    def c1(d:pd.DataFrame)->int:
+        '''
+        corresponds to s1, 用Chandelier公式计算，用最后一行的数据
+        @input d: window_size的df
+        @output : 1 or  0
+        '''
+        long = d.high.max() - d.atr.iloc[-1]*3
+        short = d.low.min() + d.atr.iloc[-1]*3
+        if d.close.iloc[-1] < long: 
+            flag = -1
+        elif d.close.iloc[-1] > short: 
+            flag = 1
+        else:
+            flag = 0
+        
+        return flag
+
+    def c2(d:pd.DataFrame)->int:
+        '''
+        corresponds to s2. 所属板块5日均线> 10日均线，说明股票总体趋势是上升
+        @input d: window_size的df
+        @output : 返回1/0
+        '''
+        return 1 if (d.close_5_ema > d.close_10_ema).sum()/WINDOW_SIZE > 0.8 else -1
+
+    def c3(d:pd.DataFrame)->int:
+        '''
+        corresponds to s3。大盘5日均线> 10日均线，说明股票总体趋势是上升
+        更好的做法是对比每天有个True/False，然后做value_count()，超过一定数量为升势，少于一定数量为跌势
+        @input d: window_size的df, 
+        @output : 根据其最后一行的计算返回1/0, simple enough
+        '''
+        return 1 if (d.close_5_ema > d.close_10_ema).sum()/WINDOW_SIZE > 0.8 else -1
 
     @classmethod
-    def choose_action(cls, d: pd.DataFrame) -> int:
+    def choose_action(cls, s: pd.DataFrame) -> int:
         ''' action for a single stock, RL compatible'''
-        s0, s1, s2, s3 = d  # 将d解析为5分钟线、股票日线、板块日线、大盘日线
+        s0, s1, s2, s3 = s  # 将s解析为5分钟线、股票日线、板块日线、大盘日线
         # cls.criteria(s0)  # 分钟线用于判断stock_momentum?
-        score = cls.criteria(s1) * 0.4 + cls.criteria(s2) * 0.3 + cls.criteria(s3) * 0.3
-        if score > 0.15: 
+        score = cls.c0(s0)*0. + cls.c1(s1) * 0.8 + cls.c2(s2) * 0.1 + cls.c3(s3) * 0.1
+        if score > 0.60: 
             a = 1
-        elif score < 0.5:
-            a = -1
         else:
-            a = 0
+            a = -1
         
         return a
         
@@ -168,8 +201,6 @@ class Chandelier(BaseAgent):
 
 if __name__ == "__main__":
     df = pd.read_excel("000016closeweight.xls", dtype={'code':'str'}, header = 0)
-    # df['code'] = 'sh.'+df.code
-    # df = pd.read_excel("000016closeweight(5).xls", dtype={'code':'str'}, header = 0)
     bw = Chandelier(df)
     score = bw.vote()
     print(f"score = {score}, Buy(1) or Sell(-1)?", bw.etf_action(score))

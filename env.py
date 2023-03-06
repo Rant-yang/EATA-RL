@@ -4,7 +4,7 @@ from data import BaostockDataWorker
 from preprocess import Preprocessor
 from datetime import datetime
 import gym
-from globals import TDT, TD , OCLHVA, indicators, REWARD, WEEKDAY, WINDOW_SIZE
+from globals import TDT, TD , OCLHVA, indicators, REWARD, WEEKDAY, WINDOW_SIZE,indicators_plus
 import pysnooper
 
 from retrying import retry
@@ -12,7 +12,6 @@ from retrying import retry
 #%%
 class StockmarketEnv(gym.Env):
 
-#%%
     def __init__(self, row, days = 2000, window_size=20):
         ''' set of the stocks, algo, and days to trace back
             the file_name must be a xls file and has fields like .code, .sector, .weight
@@ -41,9 +40,9 @@ class StockmarketEnv(gym.Env):
             self.trade_days = self.dataworker.actual_days(stock)   
             # Preprocessing
             self.stock5m = Preprocessor(stock5m).clean().fill_empty_days(trade_days= self.trade_days).df[TDT+OCLHVA] 
-            self.stock = Preprocessor(stock).bundle_process()[TD+OCLHVA+REWARD+indicators+WEEKDAY]
-            self.sector = Preprocessor(sector).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators]
-            self.market = Preprocessor(market).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators] # 大盘日线 [indicators]
+            self.stock = Preprocessor(stock).bundle_process()[TD+OCLHVA+REWARD+indicators+WEEKDAY+indicators_plus]
+            self.sector = Preprocessor(sector).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators+indicators_plus]
+            self.market = Preprocessor(market).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators+indicators_plus] # 大盘日线 [indicators]
 
             # self.stock_matrices = [x.values for x in stock.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
             # self.sector_matrices = [x.values for x in sector.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
@@ -87,6 +86,8 @@ class StockmarketEnv(gym.Env):
         s1 = self.stock[self.stock.date.isin(days)]    # 股票日线， landmark, reward, indicators
         s2 = self.sector[self.sector.date.isin(days)]   # 板块日线，仅indicators
         s3 = self.market[self.market.date.isin(days)]   # 股市日线，仅indicators
+        # if s0.empty or s1.empty or s2.empty or s3.empty: # 检查s0,s1,s2,s3
+        #       raise Exception()   # retry this function, move days to next slice
         # 尽量保持原有信息，工作可以交给bandwagon.choose_action(), 由agent自行决定如何使用。
         # s_ = encode(s_)   # 未来还是将state进行编码后返回吧
         return (s0, s1, s2, s3)  # 拼接后再返回
@@ -94,7 +95,6 @@ class StockmarketEnv(gym.Env):
     def step(self, a:int = None):
         self.iter = self.iter if a else self.window_size - 1    # if no action, go back to the first row
         s_ = self._state()
-        assert len(s_[1])>0 , "empty s1"
         r = self._reward(a, s_[1])  # reward的计算基于日线，即s1的最后一行
         info = self._info(s_[1])    # 将ticker,价格和交易日期通过info传递
         done = False if self.iter < len(self.trade_days) -1  else True
