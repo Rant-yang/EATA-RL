@@ -6,9 +6,9 @@ import torch
 import numpy as np
 import os
 import pysnooper
-from retrying import retry
 import numpy as np
 import matplotlib.ticker as ticker
+from globals import WINDOW_SIZE
 ## 关于时间序列拐点检测方法, check the following links:
 # 魔法数字（二）——通过python 中的kneed包找到拐点的方法 - 恒沙数的文章 - 知乎 https://zhuanlan.zhihu.com/p/444403256
 # ruptures https://centre-borelli.github.io/ruptures-docs/
@@ -92,12 +92,36 @@ def landmarks(df:pd.DataFrame, D = 10, P=0.05):
     return d[d.landmark == '^'].index, d[d.landmark == 'v'].index
 ###################
 # v3.0
+
+def super_smoother(data:np.array, length:int) -> np.array:
+    ''' Applies a super smoothing filter to the given data with length.
+
+        :param data: A numpy array containing the data to be smoothed.
+        :param length: An integer specifying the length of the filter.
+        :return: A numpy array containing the smoothed data.
+	'''
+    a1 = np.exp(-1.414 * 3.14159 / (0.5 * length))
+    b1 = 2 * a1 * np.cos(1.414 * 180 / (0.5 * length))
+    c2 = b1
+    c3 = -a1 * a1
+    c1 = 1 - c2 - c3
+
+    # filt = [0] * len(data)    # as list
+    filt = np.zeros_like(data)  # as np.array
+    filt[0] = data[0]
+    filt[1] = c1 * (data[0] + data[1]) / 2 + (c2+c3) * filt[0]
+    for i in range(2, len(data)):
+        filt[i] = c1 * (data[i] + data[i - 1]) / 2 + c2 * filt[i - 1] + c3 * filt[i - 2]
+        
+    return filt
+
 def landmarks_BB(df:pd.DataFrame):
     ''' Bry-Boschan算法
     df: a time-dependant df
     requirement: df has a column `close`
     '''
-    d=df[['close']]
+    d = df[['close']]
+    # d = super_smoother(d, WINDOW_SIZE)    # 过滤一下
     dataShifted = pd.DataFrame(index = d.index)
     for i in range(-5, 5):
         dataShifted = pd.concat([dataShifted, d.shift(i).rename(columns = {d.columns[0]: 'shift_' + str(i)})], axis = 1)
@@ -138,8 +162,6 @@ def depict(s:pd.Series,peaks:pd.Index,bottoms:pd.Index)->None:
     for p in peaks: plt.text(x=p, y=s.loc[p], s='x', color="#f03752") # 海棠红 http://zhongguose.com/#haitanghong
     for b in bottoms: plt.text(x=b, y=s.loc[b], s='o',color="#41ae3c") # 宝石绿 http://zhongguose.com/#baoshilv
     plt.show()
-
-##########################
 
 def duplicate_index(series,duplicate_num=2):
     """
@@ -182,7 +204,7 @@ def duplicate_index(series,duplicate_num=2):
             lst.append(series.index[j])
         index_real.append(lst)
     return index_real
-
+#############
 def time_cost(func):
     # train 要求返回reward与action
     def wrapper(*args, **kwargs):
@@ -210,7 +232,7 @@ def str2nparray(embedding:str):
         当然这里也可以直接改用torch.Tensor()
     '''
     return np.array(list(map(float, embedding.split(","))),dtype=np.float64)
-
+########
 def error_report(exception):
     print("Err:",exception)
     return False    # 必须有返回项，否则File "e:\rlMarketTiming\DQN\train.py", line 109, in train

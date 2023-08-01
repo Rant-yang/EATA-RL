@@ -200,7 +200,7 @@ class Chandelier(BaseAgent):
         self.stock_list.to_csv(datetime.now().strftime("%Y-%m-%d.%H.")+"calculated.csv")
 
 if __name__ == "__main__":
-    df = pd.read_excel("000016closeweight.xls", dtype={'code':'str'}, header = 0)
+    df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
     bw = Chandelier(df)
     score = bw.vote()
     print(f"score = {score}, Buy(1) or Sell(-1)?", bw.etf_action(score))

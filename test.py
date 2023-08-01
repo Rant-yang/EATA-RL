@@ -15,7 +15,7 @@ from tqdm import trange
 import os
 from globals import WINDOW_SIZE
 
-def run(row, days) -> pd.DataFrame:
+def run(agent, row, days) -> pd.DataFrame:
     env = StockmarketEnv(row, days)
     s = env.reset()
     result = pd.DataFrame(columns=['ticker','date','close','action','reward'])
@@ -38,19 +38,17 @@ def check_and_make_directories(directories: list[str]):
             os.makedirs("./" + directory)
 #%%
 from globals import test_result
-from chandelier import Chandelier as agent     # 换其他模型，只需要修改这句。例如 from chandelier import ChandelierExit as agent
 from pathlib import Path
 
-if __name__ == "__main__":
-    obj = agent.__name__    # 测试对象名称
-    data_folder = Path(f"{test_result}/{obj}")
+def test(Obj:object, stock_list:pd.DataFrame):
+    obj = Obj(stock_list)   
+    df = obj.stock_list
+    data_folder = Path(f"{test_result}/{obj.__name__}")
     today = datetime.today().strftime("%Y%m%d.%H%M")   # make sure it does not go beyond to the next day
-    print(f"Testing {obj}")
-    df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
-    df = df.sample(2) # 开发时用，测试agent的时候将此行注释即可
+    print(f"*** Testing {obj.__name__} ***")
     for i, row in df.iterrows(): # for each SZ50 constituent
         print(f"#{i} Processing {row.code} {row['name']}")
-        result = run(row, days= 2000)   
+        result = run(obj, row, days= 2000)   
         check_and_make_directories([str(data_folder)])
         file_to_open = data_folder / f"{today}{row.code}.csv"
         result.to_csv(file_to_open)
@@ -59,6 +57,17 @@ if __name__ == "__main__":
         # ev = Evaluator(df)
         # ev.asset_change().df.to_csv(file_to_open)  # 保存asset_change()的结果到原f 
 
-    print(f"Test done. Check the folder {obj}")
-    os.system(f"python3 evaluate.py {obj}")
+    print(f"Test done. Check the folder {obj.__name__}")
+    os.system(f"python evaluate.py {obj.__name__}")
     print("Evaluation done. Check the visualizer")
+
+def inference(Obj:object, stock_list:pd.DataFrame):
+    obj = Obj(stock_list)
+    score = obj.vote()
+    print(f"score = {score}, Buy(1) or Sell(-1)?", obj.etf_action(score))
+
+if __name__ == "__main__":
+    # df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
+    # df = df.sample(2) # 开发时用，测试agent的时候将此行注释即可
+    # test(Obj, df)
+    pass

@@ -1,4 +1,3 @@
-import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -9,15 +8,16 @@ import warnings
 warnings.filterwarnings('ignore')
 from data import DataStorage, BaostockDataWorker 
 from globals import indicators, OCLHVA, Normed_OCLHVA, REWARD, WEEKDAY, WINDOW_SIZE
+import numpy as np
+
 
 class Preprocessor():
 
     def __init__(self,df:pd.DataFrame=None) -> None:
-        # self.ds = DataStorage()
+        self.ds = DataStorage()
         self.dw = BaostockDataWorker()  # 导致每次初始化都要login一次
         self.df = self.ds.load_raw() if df is None else df
-
-        self.normalization = 'div_pre_close' # 'div_pre_close' | 'div_self' |'standardization' | 'z-score' 
+        self.normalization = 'standardization' # 'div_pre_close' | 'div_self' |'standardization' | 'z-score'
         # 注：最后进行embedding的是[*tech_indicator_list，*Normed_OCLHVA] 这几个字段
         self.windowsize = WINDOW_SIZE
     
@@ -97,17 +97,56 @@ class Preprocessor():
         self.df = df[df.date.isin(actual_trade_days.calendar_date)]   
         return self
 
+    def fill_empty_minutes(self, df: pd.DataFrame = None):
+        
+        if 'time' in self.df.columns:  # 检查是否包含 "time" 字段
+            df = self.df if df is None else df
+
+            # 随便选一个分钟线完整的序列
+            full = df.groupby('date')['date'].value_counts() == 48 
+            rand_day = full[full.values].index.get_level_values(0).tolist()[0]
+            date_times = df[df.date==rand_day]['time']
+            date_times = [m[8:] for m in date_times]
+
+            # 选出不够48条分钟线的日期
+            miss = df.groupby('date')['date'].value_counts() != 48 
+            miss_days = miss[miss.values].index.get_level_values(0).tolist()
+
+            if miss_days:
+                for date in miss_days:
+                    minus = list(set(date_times) - set([s[8:] for s in df[df.date == date]['time']]))
+                    time = date[0:4] + date[5:7] + date[8:10] + minus[0]
+                    df = df.append(pd.Series({'date': date, 'time': time, 'code': df.code.iloc[0]}), ignore_index=True)
+                
+                df.sort_values(by="time", inplace=True)
+                df.reset_index(inplace=True, drop=True)
+
+            if df.iloc[0].isnull().any() or df.iloc[-1].isnull().any():
+                # 使用 fillna() 方法填充第一行或最后一行的 NaN，使用前一行的值进行填充
+                df = df.fillna(method='ffill')
+                print("empty minutes found, filling with fillna")
+            else:
+                # 使用 interpolate() 方法填充其他行的 NaN
+                df.interpolate(inplace=True)
+                print("empty minutes found, filling with interpolate")
+            self.df = df 
+            
+            return self
+        
+        else:
+            return self
 
     def add_indicators(self,df:pd.DataFrame = None):
         '''add indicators inplace to the dataframe'''
         df = self.df if df is None else df
         sdf = StockDataFrame(df.copy())  # sdf adds some unneccessary fields inplace, fork a copy for whatever it wants to doodle
         # x = sdf[indicators] # [['close_5_ema', 'close_10_ema','rsi']]
-        self.df[indicators] = sdf[indicators] #/100 # d/5 - 10的效果反而不好, 不知道为什么
-        self.df['macdv'] = (sdf['macd'] - sdf['macd_9_ema'])/sdf['macd_9_ema']
+        self.df[indicators] = sdf[indicators] 
+
         # self.df = self.df.dropna()    # 一旦dropna()，单行数据的indicators基本上是nan
         self.df.interpolate(inplace= True)   # 替代上面一行
         return self
+
 
     def normalize(self,df= None):
         ''' to normalize the designated fields to [0,1)
@@ -120,12 +159,16 @@ class Preprocessor():
         if self.normalization == 'div_self':# 将ochlva处理为涨跌幅
             df[Normed_OCLHVA] = df[OCLHVA].pct_change(1).applymap('{0:.06f}'.format)     #volume 出现 前一天极小后一天极大时，pct_change会非常大
         elif self.normalization == 'div_pre_close':# 将ochl处理为相较于前一天close的比例，除volume和amount外
-            df['open_'] =(df.open-df.pre_close)/df.pre_close
-            df['close_'] =(df.close-df.pre_close)/df.pre_close
-            df['low_'] =(df.low-df.pre_close)/df.pre_close
-            df['high_'] =(df.high-df.pre_close)/df.pre_close
-            df["volume_"] = df.volume.pct_change(1)  # with exception
-            df["amount_"] = df.amount.pct_change(1)
+            df['open_'] =(df.open-df.close.shift(1))/df.close.shift(1)
+            df['close_'] =(df.close-df.close.shift(1))/df.close.shift(1)
+            df['low_'] =(df.low-df.close.shift(1))/df.close.shift(1)
+            df['high_'] =(df.high-df.close.shift(1))/df.close.shift(1)
+            def sigmoid(x):
+                return 1.0 / (1 + np.exp(-x))
+            df["volume_"] = (df.volume-df.volume.shift(1))/df.volume.shift(1)  # with exception
+            df["volume_"] = df["volume_"].apply(sigmoid)
+            df["amount_"] = (df.amount-df.amount.shift(1))/df.amount.shift(1)
+            df["amount_"] = df["amount_"].apply(sigmoid)
         elif self.normalization == 'z-score':# do z-score in a sliding window
             d = df[OCLHVA] 
             r = d.rolling(self.windowsize)
@@ -134,6 +177,7 @@ class Preprocessor():
             d = df[OCLHVA] 
             r = d.rolling(self.windowsize) 
             df[Normed_OCLHVA] = (d-r.min())/(r.max()-r.min())
+
         elif self.normalization == 'momentum':# do running smooth in a sliding window, where $x_t = theta*x_{t-1} + (1-theta)&x_t$
             d = df[OCLHVA] 
             r = d.rolling(self.windowsize) 
@@ -213,12 +257,13 @@ class Preprocessor():
 
 
     def bundle_process(self):
-        self.clean().fill_empty_days().landmark().add_reward_().add_indicators() 
+        self.clean().fill_empty_days().fill_empty_minutes().landmark().add_reward_().add_indicators()
         return self.df
     
-    def load(self):
-        self.df = self.ds.load_raw()
-        return self.df
+    def load(self, df:pd.DataFrame = None):
+        self.df = df if df is not None else self.ds.load_raw()
+        # self.df = df or self.ds.load_raw()
+        return self
 
     def save(self):
         return self.ds.save_processed(self.df)
@@ -227,5 +272,8 @@ if __name__ == "__main__":
     # MAIN_PATH = './'
     df = DataStorage().load_raw()
     final = Preprocessor(df).bundle_process()
+    # final = final.drop(columns=['amount','volume'])
     print("final dataframe\n",final)
-    DataStorage().save_processed(final) 
+    #DataStorage().save_processed(final)
+    # final.to_csv('C:/Users/win10/Desktop/Archive/data.csv')
+    print(final.columns)

@@ -35,18 +35,15 @@ mkt_oclhva_normed = [MARKET_PREFIX+x for x in Normed_OCLHVA]
 indicators = ['kdjk', 'kdjd', 'kdjj']
 indicators += ["rsi_6", "rsi_12", "rsi_24"]
 indicators += ["macds","macdh","atr","vr","adx"] 
-indicators += ['close_5_ema', 'close_10_ema'] 
+indicators += ['close_5_ema', 'close_10_ema','close_20_ema','close_50_ema','close_100_ema']     # 有很多策略要用到很长周期的均线，若基于20日窗口就没法计算
 mkt_indicators = [MARKET_PREFIX+x for x in indicators]
 sct_indicators = [SECTOR_PREFIX+x for x in indicators]
-indicators_plus = ['macdv']
-
+indicators_plus = ['macdv', 'reflex']
+# for reflex, refer to https://zhuanlan.zhihu.com/p/557480350
 #%%
-
-import tushare as ts
 TS_TOKEN = "72d1e47c3b0728a26bfc4a9f54132b195890fa843815f896708515f1"
-ts.set_token(TS_TOKEN)
 
-# data source mapping dictionary, used by pd.rename()
+#%% data source mapping dictionary, used by pd.rename()
 TUSHARE_MAPPING = {"ts_code":"ticker","trade_date":"date","vol":"volume"}
 BAOSTOCK_MAPPING = {"code":"ticker"}
 

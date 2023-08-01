@@ -1,4 +1,3 @@
-from this import d
 import pandas as pd
 import os
 
@@ -15,6 +14,7 @@ class Evaluator():
 
     def __init__(self, df, predicted=None, episode=None ):
         self.df = df
+
         self.evaluated = pd.DataFrame(columns = ['ticker','tp','fp','tn','fn','accuracy','precision','recall','f1_score','tpr','fpr','annual_return'])
 
     def asset_change(self):
@@ -66,6 +66,13 @@ class Evaluator():
         # self.df[['change_wo_short','change_w_short']] = self.df[['change_wo_short','change_w_short']].fillna(1)
 
         d = self.df
+        # 上面假定d.action in [-1,1]，但还有一种情况是d.action == 0，即hold，未考虑到。 # 需要将d.action == 0的情况替换成-1 or 1
+        idx = (d.action != 0).idxmax()    # False<True，寻找第一个不等于0的
+        d = d[idx:] #  去掉前面一串等于0的action，从第一个不等于0的开始，因为这些本来也说不清楚是buy后的hold还是sell后的hold
+        while any(d.action==0): # 只要存在0，就把上一行的action复制下来
+            d['action'] = list(map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1)))
+        d['action'] = d['action'].astype("int")
+        ############    
         d['change_wo_short'] = d['change_w_short'] = d.close/d.close.shift(1) # 只做多情况下与上一天的变化比例，会在第一行留下nan
         d.loc[d.action == -1,'change_wo_short'] = 1     # 不做空的日子，与上一天相比没变化
         d.loc[d.action == -1,'change_w_short'] **= -1   # 有做空的日子，与上一天的比率取倒数
@@ -121,12 +128,11 @@ def run(obj):
         ev = Evaluator(df)
         ev.asset_change().df.to_csv(file_to_open)  # 保存asset_change()的结果到原f 
         performance = ev.class_perf()   # 返回class_perf()的结果给performance
-        df_list = df_list.append(performance)   # 
+        df_list = pd.concat([df_list, performance])    
 
     df_list.to_csv(data_folder/f'{summary}')
 
 if __name__ == "__main__":
-    # obj = 'Chandelier'  # 改成你自己的策略
     if len(sys.argv)>=2:
         obj = sys.argv[1]
         run(obj)    

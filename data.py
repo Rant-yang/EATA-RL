@@ -7,7 +7,7 @@ from globals import MAIN_PATH, OCLHVA, MKT_OCLHVA, BAOSTOCK_MAPPING, WINDOW_SIZE
 import pysnooper
 from datetime import datetime, timedelta
 from itertools import count
-import tushare as ts
+# import tushare as ts
 
 DATABASE = "stock.db"
 DATABASE_PATH = MAIN_PATH  # 这句话在其他import的时候就已经执行，所以未必能达到想要的效果 # 直接调用上面globals.MAIN_PATH 导致不能正确建立conn，main不能及时修改globals.MAIN_PATH
@@ -121,7 +121,7 @@ class BaostockDataWorker(DataWorker):
     def __init__(self) -> None:
         super().__init__()
         self.login = bs.login(user_id="anonymous", password="123456")
-        # self.ds = DataStorage()
+        self.ds = DataStorage()
         self.calendar = self.market_calendar()
         self.calendar = self.calendar[self.calendar.is_trading_day == "1"]  # 只留下交易日
 

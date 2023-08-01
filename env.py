@@ -4,10 +4,8 @@ from data import BaostockDataWorker
 from preprocess import Preprocessor
 from datetime import datetime
 import gym
-from globals import TDT, TD , OCLHVA, indicators, REWARD, WEEKDAY, WINDOW_SIZE,indicators_plus
-import pysnooper
+from globals import TDT, TD , OCLHVA, indicators, REWARD, WEEKDAY, WINDOW_SIZE
 
-from retrying import retry
 
 #%%
 class StockmarketEnv(gym.Env):
@@ -18,7 +16,8 @@ class StockmarketEnv(gym.Env):
         '''
         super(StockmarketEnv, self).__init__()
         self.dataworker = BaostockDataWorker()
-        self.window_size = 20
+        self.preprocessor = Preprocessor()
+        self.window_size = window_size * 5  # 额外给5倍的window_size，方便某些计算，例如20日平均线
         
         def data_valid():
             '''check days in stock5m, stock, sector, and market are totally matched '''
@@ -39,10 +38,10 @@ class StockmarketEnv(gym.Env):
             # min_day and max_day from stock
             self.trade_days = self.dataworker.actual_days(stock)   
             # Preprocessing
-            self.stock5m = Preprocessor(stock5m).clean().fill_empty_days(trade_days= self.trade_days).df[TDT+OCLHVA] 
-            self.stock = Preprocessor(stock).bundle_process()[TD+OCLHVA+REWARD+indicators+WEEKDAY+indicators_plus]
-            self.sector = Preprocessor(sector).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators+indicators_plus]
-            self.market = Preprocessor(market).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators+indicators_plus] # 大盘日线 [indicators]
+            self.stock5m = self.preprocessor.load(stock5m).clean().fill_empty_days(trade_days= self.trade_days).df[TDT+OCLHVA] 
+            self.stock = self.preprocessor.load(stock).bundle_process()[TD+OCLHVA+REWARD+indicators+WEEKDAY]
+            self.sector = self.preprocessor.load(sector).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators]
+            self.market = self.preprocessor.load(market).clean().fill_empty_days(trade_days= self.trade_days).add_indicators().df[TD + indicators] # 大盘日线 [indicators]
 
             # self.stock_matrices = [x.values for x in stock.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
             # self.sector_matrices = [x.values for x in sector.rolling(window_size)][window_size-1:] # 获得rolling的矩阵
