@@ -22,7 +22,6 @@ class Agent():
         def __prepare__(s:pd.Series, ktype='5')-> pd.DataFrame:
             # 获取所有股票当天的数据，这样其他函数只需要做计算即可。days取win_size的3倍，应该足够做一些ma,diff,dropna等操作了
             d1 = [self.dataworker.latest(c, ktype=ktype, days = self.window_size * 5) for c in s] # a list of df
-            # d2 = [Preprocessor(s).bundle_process() for s in d1] # 对每个df做预处理
             d2 = [self.preprcessor.load(s).bundle_process() for s in d1] # 对每个df做预处理
             return d2
         
@@ -80,7 +79,7 @@ class Agent():
         self.stock_list['stock_momentum'] = [sig21(criteria(s)) for s in self.stocks_datum] 
         return self.stock_list.stock_momentum
         
-    def strength(self): # v1.2
+    def strength(self, w1: float, w2: float, w3: float, w4: float) -> pd.Series:
         ''' 输入股票列表的一行（code 及其对应的sector和market），计算其强弱分数
         record : DataFrame的一行
         具体做法是：
@@ -88,6 +87,14 @@ class Agent():
         - 板块量能：根据ticker所在板块的强弱打分，权重30%；
         - 大盘量能：根据大盘的强弱打分，权重20%；
         - 股票惯性：根据股票昨天的涨跌打分，权重20%.
+        Args:
+            w1 (float): Weight for stock volume score.
+            w2 (float): Weight for sector volume score.
+            w3 (float): Weight for market volume score.
+            w4 (float): Weight for stock momentum score.
+        Returns:
+            pandas.Series: Strength scores for each stock.
+
         '''
         self.stock_list['stock_strength'] = [self.criteria(d) for d in self.stocks_datum]   # 股票量能
         self.stock_list['sector_strength'] =[self.criteria(s) for s in self.sectors_datum]  # 板块量能
@@ -100,33 +107,27 @@ class Agent():
         self.stock_momentum() # 股票惯性
         # 计算总的strength，权重可以随时调整
         self.stock_list['strength'] = \
-                self.stock_list['stock_strength']* 0.4 \
-                + self.stock_list['sector_strength']*0.3 \
-                + self.stock_list['market_strength']*0.2 \
-                + self.stock_list['stock_momentum']*0.1 
+                self.stock_list['stock_strength']* w1 \
+                + self.stock_list['sector_strength']* w2 \
+                + self.stock_list['market_strength']* w3 \
+                + self.stock_list['stock_momentum']* w4 
 
         return self.stock_list['strength'] 
     
+# define methods to be overrided in its child
     @staticmethod
     def criteria(d:pd.DataFrame)->int:
         '''
         @input d: window_size的df
         @output : 根据其最后一行的计算返回1/0, simple enough
+        示例。一般要求子类自己实现本方法
         '''
         r = d.mean()    # 取20天的平均值试试
-        # r = d.close.ewm(span=len(df)).mean().iloc[-1]   # 20天内的指数平均值的最后一行
         return 1 if r.close_5_ema>r.close_10_ema and r.rsi_24 >50 else -1        
-    # 以上5个函数，可以替换成对个股的预测，然后再进行投票。
-    # 预测时可以采用各种手段(的组合)，例如"MA5>MA10 and RSI>50" etc. (2)
-    # 但一般原则是:
-    # (1) 个股起码去到日内的信息(1分钟线，5分钟线，15分钟线 etc.)，日线信息往往不够用；
-    # (2) 携带大盘和板块信息
-    # (3) 可增加策略，不同策略之间也可以有投票机制
 
-# define methods to be overrided in its child
     def vote(self)->int:
         '''输入多个股票代码以及各自的权重，计算etf总的强弱势'''
-        s = self.strength()
+        s = self.strength(1,0,0,0)
         return np.dot(s, self.stock_list.weight)
     def etf_action(self,score)->int:
         a = 0
@@ -138,6 +139,3 @@ class Agent():
     
     def choose_action(cls, s: (pd.DataFrame)) -> int:
         pass
-
-    def save(self):
-        self.stock_list.to_csv(datetime.now().strftime("%Y%m%d.%H.")+"calculated.csv")

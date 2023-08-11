@@ -31,8 +31,8 @@ class WebServer:
         self.dfs = [pd.read_csv(data_folder/f'{f}', index_col=0) for f in files]
         # 下一步改为根据agents，遍历指定目录
 
-    def process(self, df, days = 250):
-        d = df.tail(days)   #选最后250交易日的数据(大致1年），避免最后做出的图过于拥挤。
+    def process(self, df, days = 120):
+        d = df.tail(days).copy()   #选最后250交易日的数据(大致1年），避免最后做出的图过于拥挤。
         self.data_all = d.shape[0]
         self.ticker = d.ticker.iloc[0]
         self.record = str(d.shape[0])  # 一共几天交易日的数据
@@ -49,12 +49,13 @@ class WebServer:
 
         # 分别挑出action为买或卖，目的是为了做区间绘图
         d['last_action'] = d['action'].shift(1) # (action, 昨天的action)
-        self.action_days = d[d.action != d.last_action][['date','action']] 
+        self.action_days = d[d.action != d.last_action][['date','close','action','reward']] 
         # self.action_days['date'] = pd.to_datetime(self.action_days.date)    # 改成datetime，才能和self.df.date比较
         self.action_days['next_day'] = self.action_days.date.shift(-1)      # (.date, .next_day) 确定了灰底的范围
         self.action_days['next_day'].fillna(d.iloc[-1].date, inplace = True) # 用d最后一行的date补齐最后一行的空值
 
-        self.df = d
+        self.df = d # 其实没必要用这句话？
+        return d
 
     def run(self):
         self.obj = st.sidebar.radio('Choose one',self.agents)
@@ -67,21 +68,18 @@ class WebServer:
 
             # histograms of metrics in a 2*3 grid
             f,axes = plt.subplots(nrows=2,ncols=3,figsize=(15,8))
-            my_list = ['accuracy','precision','recall', 'f1_score', 'fpr','annual_return']
+            my_list = ['accuracy','precision','recall', 'f1_score', 'fpr','reward']
             from itertools import count
             for i,m in zip(count(start = 0, step = 1), my_list):
-                f.axes[i].hist(self.perf[m], bins = 20, alpha = 0.5) 
+                f.axes[i].hist(self.perf[m], bins = 20, alpha = 0.6) 
                 f.axes[i].set_title(m)
             st.pyplot(f)
-            # st.bokeh_chart(f)
-            # st.plotly_chart(f)
-            # assisted with a dataframe
             st.dataframe(self.perf)
             print(self.perf)
         
         # 对单个股票做图
         for df in self.dfs:
-            self.process(df)
+            d = self.process(df)    # 用d，好过用self.df
             # st.subheader("CLOSE & ASSET GRAPH")
             st.metric(label="Ticker", value = self.ticker, delta = 'latest '+ self.record +' days')
             
@@ -96,7 +94,7 @@ class WebServer:
             floor = min(self.df.close.min(), self.asset_w_short.min(), self.asset_wo_short.min())
             ceiling = max(self.df.close.max(), self.asset_w_short.max(), self.asset_wo_short.max())
 
-            self.df['date'] = pd.to_datetime(self.df.date)  # 不转成datetime类型x轴会很拥挤
+            # self.df['date'] = pd.to_datetime(self.df.date)  # 不转成datetime类型x轴会很拥挤
             # 画图 close+asset+action
             fig = plt.figure(figsize=(15,8))
             ax1 = fig.add_subplot(111)
@@ -105,14 +103,17 @@ class WebServer:
             ax1.legend(loc=1)
             ax1.set_ylabel('Assets change/Close')
             ax2 = ax1 #.twinx()
-            ax2.plot(self.df.date, self.df.close, 'b', label = "Price", alpha=0.1)
-            ax2.fill_between(self.df.date, floor, self.df.close, color = 'b', alpha = 0.1)
+            ax2.plot(self.df.date, self.df.close, 'b', label = "Price", alpha=0.1)          # close
+            ax2.fill_between(self.df.date, floor, self.df.close, color = 'b', alpha = 0.1)  # close 面积填充
 
             # 采用灰底来表示做空时间，白底做多
             def plot_range(x):
-                if x.action == -1:  # 区间起点为跌
+                if x.action == -1:  # 区间起点为卖出
                     ax2.fill_between(self.df.date, floor, ceiling, (x.date <self.df.date) & (self.df.date< x.next_day), color = "k", alpha = 0.1)
-
+                
+                ax2.annotate(x.date, xy = (x.date, ceiling), rotation = -45, fontsize = 8, arrowprops=dict(arrowstyle="->",connectionstyle="arc3,rad=.2"))
+                ax2.annotate('%.3f'%x.reward, xy = (x.date, x.close), rotation = -30, fontsize = 8, arrowprops=dict(arrowstyle="->",connectionstyle="arc3,rad=.2"))
+                # ax2.text(self.df.date, ceiling, self.df.date)
             self.action_days.apply(plot_range, axis = 1)
             # ---------
             ax2.legend(loc=2)

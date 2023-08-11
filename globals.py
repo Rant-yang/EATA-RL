@@ -56,4 +56,7 @@ SH50Index = "000016" # 上证50指数代码
 SH50ETF = "510050" # 上证50ETF代码
 
 summary = 'evaluated.csv'   # 统计文件名称
+# 生成的etf信号，
+# 结构与股票的测试完全一致:['ticker',	'date',	'close'	'action',	'reward',	'change_wo_short',	'change_w_short']
+etf_action = 'etf_action.csv'   
 test_result = "Test"    # 测试结果存放目录

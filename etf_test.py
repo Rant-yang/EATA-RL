@@ -19,60 +19,32 @@ import pandas as pd
 from datetime import datetime
 from data import BaostockDataWorker
 from preprocess import Preprocessor
-
-class etf_test():
-    def __init__(self, df: pd.DataFrame):
+from globals import test_result, summary, etf_action
+from pathlib import Path
+import os
+from functools import reduce
+from evaluate import Evaluator
+class Etf():
+    def __init__(self, df: pd.DataFrame, etf: str):
         # df.columns = ['code', 'name','weight', 'sector']
         # 分别代表：股票代码，股票名称，权重，所属板块的指数代码
         # 对于“所属板块的指数代码”，如果该股票实在找不到对应的板块或者无法获取其代码，可以用大盘的指数来代替。
-        self.stock_list = df
+        self.stock_list = df.sort_values(by='code', ascending=True).reindex()
         self.dataworker = BaostockDataWorker()
         self.preprcessor = Preprocessor()
         self.window_size = 20
+        self.etf = etf
 
-        def __prepare__(s:pd.Series, ktype='5')-> pd.DataFrame:
+        def __prepare__(c:str, ktype='5')-> pd.DataFrame:
             # 获取所有股票当天的数据，这样其他函数只需要做计算即可。days取win_size的3倍，应该足够做一些ma,diff,dropna等操作了
-            d1 = [self.dataworker.latest(c, ktype=ktype, days = self.window_size * 5) for c in s] # a list of df
-            # d2 = [Preprocessor(s).bundle_process() for s in d1] # 对每个df做预处理
-            d2 = [self.preprcessor.load(s).bundle_process() for s in d1] # 对每个df做预处理
+            # c : code of etf, eg. 'sz.510050'
+            d1 = self.dataworker.latest(c, ktype=ktype, days = self.window_size * 5) 
+            d2 = self.preprcessor.load(d1).bundle_process()
             return d2
         
         # 准备好stocks, sectors, markets的数据
-        self.stocks_datum = __prepare__(self.stock_list.code, ktype='d')
-        self.sectors_datum = __prepare__(self.stock_list.sector, ktype='d')
-        self.stock_list['market'] = self.stock_list.code.apply(self.get_market) # 多加一个字段为了后面merge
-        self.market_codes = self.stock_list.market.drop_duplicates() # 去重，对sz50来说，就剩1个"sh.000001"     
-        self.market_datum = __prepare__(self.market_codes, ktype='d') # 准备好大盘数据
+        self.etf_close = __prepare__(etf, ktype='d')
         
-    @staticmethod
-    def market_of(self, ticker:str) -> str:
-        '''根据股票代码，返回其所在的大盘指数代码
-        http://baostock.com/baostock/index.php/指数数据
-        综合指数，例如：sh.000001 上证指数，sz.399106 深证综指 等；
-        规模指数，例如：sh.000016 上证50，sh.000300 沪深300，sh.000905 中证500，sz.399001 深证成指等；
-        注意指数没有分钟线数据... ...怎么办？
-        ie. 'sh.000023' goes to 'sh.000001' # 上证综指 
-            'sz.300333' goes to 'sz.399106' # 深圳综指
-            'hk.00700' goes to 'HSI'        # 恒生指数
-            'us.######' goes to 'NASDAQ' or 'DJX' 
-        '''
-        market = ticker.split(".")[0]
-        # match market:   # requires python 3.10 or higher version
-        #     case 'sh': 'sh.000001'
-        #     case 'sz':  'sz.399106'
-        #     case 'hk':  'HSI'
-        #     case 'us':  'DJX'
-        if market == 'sh': mkt = 'sh.000001'
-        elif market == 'sz': mkt = 'sz.399106'
-        elif market == 'hk': mkt = 'HSI'
-        else: print("invalid market label")
-
-        return mkt 
-
-    def get_market(self, ticker:str)->str:
-        '''都是上证的股票，都是同一个大盘。因此直接返回sh.000001即可'''
-        return "sh.000001"
-
     def stock_momentum(self): # v1.2
         '''股票涨跌惯性，根据昨天的涨跌定义今天的惯性，涨：1，跌：-1
         '''
@@ -91,7 +63,7 @@ class etf_test():
         self.stock_list['stock_momentum'] = [sig21(criteria(s)) for s in self.stocks_datum] 
         return self.stock_list.stock_momentum
         
-    def strength(self): # v1.2
+    def strength(self,df:pd.DataFrame): # v1.2
         ''' 输入股票列表的一行（code 及其对应的sector和market），计算其强弱分数
         record : DataFrame的一行
         具体做法是：
@@ -100,55 +72,58 @@ class etf_test():
         - 大盘量能：根据大盘的强弱打分，权重20%；
         - 股票惯性：根据股票昨天的涨跌打分，权重20%.
         '''
-        self.stock_list['stock_strength'] = [self.criteria(d) for d in self.stocks_datum]   # 股票量能
-        self.stock_list['sector_strength'] =[self.criteria(s) for s in self.sectors_datum]  # 板块量能
-        x = [self.criteria(m) for m in self.market_datum] # 与self.market_codes 一一对应
-        # 计算大盘量能并拼接，这里可以考虑用transform()?
-        # 根据指数代码market对应大盘的指数代码code，进行连接
-        # y = pd.DataFrame({'market':self.market_codes, 'market_strength':x}) # 拼成一个df
-        # self.stock_list = self.stock_list.merge(y, left_on="market", right_on="market", how="left")  # 大盘量能
-        self.stock_list['market_strength'] = self.stock_list.market.map({a:b for a,b in zip(self.market_codes, x)})
-        self.stock_momentum() # 股票惯性
-        # 计算总的strength，权重可以随时调整
-        self.stock_list['strength'] = \
-                self.stock_list['stock_strength']* 0.4 \
-                + self.stock_list['sector_strength']*0.3 \
-                + self.stock_list['market_strength']*0.2 \
-                + self.stock_list['stock_momentum']*0.1 
-
-        return self.stock_list['strength'] 
+        # df = pd.merge(df[['ticker','action']], self.stock_list[["code", "weight"]], left_on="ticker", right_on="code", how="left")
+        df = df[['ticker','action']].merge(self.stock_list[["code", "weight"]], left_on="ticker", right_on="code", how="left")
+        # df = df.dropna()    # 将存在空值的行删除。一般不会为空，因为df的ticker原本来自self.stock_list中的code
+        score = np.dot(df.action, df.weight)
+        action = lambda score: 1 if score > 80 else -1 if score < 50 else 0
+        return action(score)   
+        # return score
     
     @staticmethod
-    def criteria(d:pd.DataFrame)->int:
+    def _reward(self, a:int, df_slice:pd.DataFrame):
+        ''' copied from env.py, remember to maintain the same
         '''
-        @input d: window_size的df
-        @output : 根据其最后一行的计算返回1/0, simple enough
-        '''
-        r = d.mean()    # 取20天的平均值试试
-        # r = d.close.ewm(span=len(df)).mean().iloc[-1]   # 20天内的指数平均值的最后一行
-        return 1 if r.close_5_ema>r.close_10_ema and r.rsi_24 >50 else -1        
-    # 以上5个函数，可以替换成对个股的预测，然后再进行投票。
-    # 预测时可以采用各种手段(的组合)，例如"MA5>MA10 and RSI>50" etc. (2)
-    # 但一般原则是:
-    # (1) 个股起码去到日内的信息(1分钟线，5分钟线，15分钟线 etc.)，日线信息往往不够用；
-    # (2) 携带大盘和板块信息
-    # (3) 可增加策略，不同策略之间也可以有投票机制
-
-# define methods to be overrided in its child
-    def vote(self)->int:
-        '''输入多个股票代码以及各自的权重，计算etf总的强弱势'''
-        s = self.strength()
-        return np.dot(s, self.stock_list.weight)
-    def etf_action(self,score)->int:
-        a = 0
-        if score > 80:
-            a = 1
-        elif score < 50:
-            a = -1
-        return a
+        if a is None: return 0
+        assert a in [-1, 0, 1], "invalid action " + str(a)
+        column = {1:"buy_reward",0:"hold_reward", -1:"sell_reward"}[a]
+        return df_slice.iloc[-1][column]
     
-    def choose_action(cls, s: (pd.DataFrame)) -> int:
-        pass
+    def test_etf(self, obj):
+        '''所有股票，全周期，并按照日期对齐，按weight组合计算etf的action
+        1 读取所有生成的.csv到df中
+        2 按日期对齐，并附上weight
+        3 用vote()，计算每一天的etf_action
+        4 写入sz50etf.csv
+        '''
+        data_folder = Path(f"{test_result}/{obj}")
+        files = os.listdir(str(data_folder))  # 目录下所有文件,
+        files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
+        if summary in files: 
+            files.remove(summary)
+        if etf_action in files: 
+            files.remove(etf_action)  # 如果已经有了要去掉
+        print(f"Testing ETF strategy {obj} with {files}")
+        # 读取所有files，组成一个dataframe或者list of dataframe
+        df_list = [pd.read_csv(data_folder/f, index_col=0 ,header=0) for f in files]
+        df_list = reduce(lambda a,b: pd.concat([a,b]), df_list)
+        df_list = df_list.sort_values(by=['date', 'ticker']).reset_index(drop=True) # 按时间-股票对排序,并且去掉index
+        days = df_list.date.drop_duplicates()   # 去掉重复的日期
+        ####
+        etf = pd.DataFrame()
+        for day in days:                        # 按日循环计算action, reward, close
+            df = df_list[df_list.date == day]   # 每天的股票列表，包含字段['ticker', 'date', 'close', 'action', 'reward', 'change_wo_short','change_w_short']
+            action = self.strength(df)          # 根据每个股票的action和weight计算etf的action
+            reward = self._reward(action, df)   
+            close = self.etf_close[self.etf_close.date == day].close.iloc[0]
+            etf = etf.append([self.etf, day, close, action, reward])    # 'change_wo_short','change_w_short' 置空 
 
-    def save(self):
-        self.stock_list.to_csv(datetime.now().strftime("%Y%m%d.%H.")+"calculated.csv")
+        ev = Evaluator(etf)     # 增加'change_wo_short','change_w_short'字段
+        ev.asset_change().df.to_csv(data_folder/f'{etf_action}')  # 保存asset_change()的结果到etf_action
+        print(ev.class_perf())
+    
+
+if __name__ == '__main__':
+    df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
+    # df = df.sample(2) # 开发时用，测试时候将此行注释即可
+    Etf(df, "sz.510050").test_etf("Kdj")

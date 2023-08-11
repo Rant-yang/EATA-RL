@@ -15,7 +15,7 @@ class Evaluator():
     def __init__(self, df, predicted=None, episode=None ):
         self.df = df
 
-        self.evaluated = pd.DataFrame(columns = ['ticker','tp','fp','tn','fn','accuracy','precision','recall','f1_score','tpr','fpr','annual_return'])
+        self.evaluated = pd.DataFrame(columns = ['ticker','tp','fp','tn','fn','accuracy','precision','recall','f1_score','tpr','fpr','reward'])
 
     def asset_change(self):
         ''' calculate asset change by percent at each action
@@ -65,12 +65,15 @@ class Evaluator():
 
         # self.df[['change_wo_short','change_w_short']] = self.df[['change_wo_short','change_w_short']].fillna(1)
 
-        d = self.df
-        # 上面假定d.action in [-1,1]，但还有一种情况是d.action == 0，即hold，未考虑到。 # 需要将d.action == 0的情况替换成-1 or 1
+        d = self.df.copy()
+        # 去掉一开头的0
         idx = (d.action != 0).idxmax()    # False<True，寻找第一个不等于0的
         d = d[idx:] #  去掉前面一串等于0的action，从第一个不等于0的开始，因为这些本来也说不清楚是buy后的hold还是sell后的hold
-        while any(d.action==0): # 只要存在0，就把上一行的action复制下来
+        # 上面假定d.action in [-1,1]，但还有一种情况是d.action == 0，即hold，未考虑到。 # 需要将d.action == 0的情况替换成-1 or 1
+        while any(d.action==0): # 只要存在0，就把上一行的action(1 or -1)复制下来，这样整个序列就不在有0
             d['action'] = list(map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1)))
+        
+        d['action'] = d['action'].fillna(0)     # 为什么会出现nan或者inf呢？
         d['action'] = d['action'].astype("int")
         ############    
         d['change_wo_short'] = d['change_w_short'] = d.close/d.close.shift(1) # 只做多情况下与上一天的变化比例，会在第一行留下nan
@@ -101,7 +104,8 @@ class Evaluator():
         f1_score = 2*precision*recall/(precision+recall)
         tpr = recall
         fpr = fp/(fp+tn)
-        self.evaluated.loc[len(self.evaluated)] = [self.df.iloc[0].ticker,tp,fp,tn,fn,accuracy, precision, recall, f1_score, tpr, fpr,0]
+        reward = self.df.reward.mean()
+        self.evaluated.loc[len(self.evaluated)] = [self.df.iloc[0].ticker,tp,fp,tn,fn,accuracy, precision, recall, f1_score, tpr, fpr,reward]
         return self.evaluated
     
     def regr_perf(self):
@@ -111,7 +115,7 @@ class Evaluator():
         
         pass
 
-from globals import test_result, summary
+from globals import test_result, summary, etf_action
 from pathlib import Path
 import sys
 
@@ -119,7 +123,10 @@ def run(obj):
     data_folder = Path(f"{test_result}/{obj}")
     files = os.listdir(str(data_folder))  # 目录下所有文件,
     files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
-    files.remove(summary) if summary in files else files
+    if summary in files: 
+        files.remove(summary)
+    if etf_action in files: 
+        files.remove(etf_action)  # 如果已经有了要去掉
     print(f"Evaluating strategy {obj} with {files}")
     df_list = pd.DataFrame()
     for f in files: 

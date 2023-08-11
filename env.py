@@ -92,7 +92,10 @@ class StockmarketEnv(gym.Env):
         return (s0, s1, s2, s3)  # 拼接后再返回
 
     def step(self, a:int = None):
-        self.iter = self.iter if a else self.window_size - 1    # if no action, go back to the first row
+        '''
+        a \in [-1, 0, 1]. When a is None, it is the first step of the env, use self.window_size - 1
+        '''
+        self.iter = self.iter if a is not None else self.window_size - 1    # if no action, go back to the first row
         s_ = self._state()
         r = self._reward(a, s_[1])  # reward的计算基于日线，即s1的最后一行
         info = self._info(s_[1])    # 将ticker,价格和交易日期通过info传递

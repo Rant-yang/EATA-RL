@@ -13,6 +13,26 @@ class Bandwagon(Agent):
         super().__init__(df)
     
     @staticmethod
+    def kdj_diff(d:pd.DataFrame)->pd.DataFrame:
+        kr = d['kdjj'] - d['kdjd']
+        kr = (kr-kr.mean())/kr.std()    # z-score normalization
+        kr_ = kr.fillna(0).shift(1).fillna(0)
+        flex = kr[kr*kr_ <0].index      # 拐点
+        flex = pd.DataFrame(flex,columns=['a'])
+        flex['b'] = flex.a.shift(-1).dropna().astype("Int32")   # 下一个拐点
+        flex.dropna(inplace=True)
+        top_row = pd.DataFrame({'a':[0], 'b':[flex.a[0]]})
+        flex = pd.concat([top_row,flex]).reset_index(drop=True) # (拐点,下一个拐点)终于有了
+        ########
+        kr = pd.DataFrame(kr).fillna(0)     # 好像非得是pd.DataFrame，pd.Series都不行
+        def seg_cumsum(x):  # 按拐点分段进行update
+            kr.iloc[x.a:x.b] = kr.iloc[x.a:x.b].cumsum()
+            return kr.iloc[x.a:x.b]
+       
+        flex.apply(seg_cumsum, axis=1)
+        return kr
+
+    @staticmethod
     def criteria(d:pd.DataFrame)->int:
         '''
         @input d: window_size的df
