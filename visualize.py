@@ -26,20 +26,20 @@ class WebServer:
         files = os.listdir(data_folder)  # 目录下所有文件
         files = [f for f in files if os.path.splitext(f)[1] == '.csv']  # 只选择 .csv 文件,
         files.remove(summary) if summary in files else None
-        print(f"Visualizing strategy {self.obj} with {files}")
+        print(f"\nVisualizing strategy {self.obj} with {files}")
         self.perf = pd.read_csv(data_folder/f'{summary}', index_col= 0) # 需要加个文件不存在的判断，self.perf = None
         self.dfs = [pd.read_csv(data_folder/f'{f}', index_col=0) for f in files]
         # 下一步改为根据agents，遍历指定目录
 
     def process(self, df, days = 120):
-        d = df.tail(days).copy()   #选最后250交易日的数据(大致1年），避免最后做出的图过于拥挤。
+        d = df.tail(days).copy()   #选最后n个交易日的数据(大致1年），避免最后做出的图过于拥挤。
         self.data_all = d.shape[0]
         self.ticker = d.ticker.iloc[0]
         self.record = str(d.shape[0])  # 一共几天交易日的数据
 
         # 乘上close，使两天资产线和股票的收盘价线同一起点
-        d['change_wo_short'].iloc[0] = 1  # 第一行赋值为1，以这个为起点，后面是相对于上一天比率
-        d['change_w_short'].iloc[0] = 1    
+        d[0,'change_wo_short'] = 1  # 第一行赋值为1，以这个为起点，后面是相对于上一天比率
+        d[0,'change_w_short'] = 1   # 第一行赋值为1，以这个为起点，后面是相对于上一天比率 
         self.asset_wo_short = d.close.iloc[0] * d.change_wo_short.cumprod()
         self.asset_w_short = d.close.iloc[0] * d.change_w_short.cumprod()
 
@@ -54,7 +54,7 @@ class WebServer:
         self.action_days['next_day'] = self.action_days.date.shift(-1)      # (.date, .next_day) 确定了灰底的范围
         self.action_days['next_day'].fillna(d.iloc[-1].date, inplace = True) # 用d最后一行的date补齐最后一行的空值
 
-        self.df = d # 其实没必要用这句话？
+        self.df = d 
         return d
 
     def run(self):
@@ -67,15 +67,18 @@ class WebServer:
             st.header("Summary")
 
             # histograms of metrics in a 2*3 grid
-            f,axes = plt.subplots(nrows=2,ncols=3,figsize=(15,8))
             my_list = ['accuracy','precision','recall', 'f1_score', 'fpr','reward']
-            from itertools import count
-            for i,m in zip(count(start = 0, step = 1), my_list):
-                f.axes[i].hist(self.perf[m], bins = 20, alpha = 0.6) 
-                f.axes[i].set_title(m)
+            p = self.perf[my_list]
+            f = plt.figure(figsize=(10,5))
+            p.plot(ax = f, subplots = True, kind = 'hist', bins=20, layout = (2, 3),legend = False, title = p.columns.to_list())
+
+            # f,axes = plt.subplots(nrows=2,ncols=3,figsize=(15,8))
+            # from itertools import count
+            # for i,m in zip(count(start = 0, step = 1), my_list):
+            #     f.axes[i].hist(self.perf[m], bins = 20, alpha = 0.8) 
+            #     f.axes[i].set_title(m)
             st.pyplot(f)
             st.dataframe(self.perf)
-            print(self.perf)
         
         # 对单个股票做图
         for df in self.dfs:

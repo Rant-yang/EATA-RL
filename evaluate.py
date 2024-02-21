@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import numpy as np
 
 
 class Evaluator():
@@ -67,19 +68,19 @@ class Evaluator():
 
         d = self.df.copy()
         # 去掉一开头的0
-        idx = (d.action != 0).idxmax()    # False<True，寻找第一个不等于0的
-        d = d[idx:] #  去掉前面一串等于0的action，从第一个不等于0的开始，因为这些本来也说不清楚是buy后的hold还是sell后的hold
+        # idx = (d.action != 0).idxmax()    # False<True，寻找第一个不等于0的
+        # d = d[idx:] #  去掉前面一串等于0的action，从第一个不等于0的开始，因为这些本来也说不清楚是buy后的hold还是sell后的hold
         # 上面假定d.action in [-1,1]，但还有一种情况是d.action == 0，即hold，未考虑到。 # 需要将d.action == 0的情况替换成-1 or 1
-        while any(d.action==0): # 只要存在0，就把上一行的action(1 or -1)复制下来，这样整个序列就不在有0
-            d['action'] = list(map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1)))
-        
-        d['action'] = d['action'].fillna(0)     # 为什么会出现nan或者inf呢？
-        d['action'] = d['action'].astype("int")
-        ############    
+        # while any(d.action==0): # 只要存在0，就把上一行的action(1 or -1)复制下来，这样整个序列就不在有0
+            # d['action'] = list(map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1)))
+            # d['action'].map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1))) # 做法2
+        # 做法3：将0替换成Nan，然后用ffill()填入上面的最近的1或-1值。@21级苏伟政
+        d['action'].replace(0,np.nan).ffill(inplace=True) 
+        d['action'] = d['action'].dropna().astype('int')  # 去掉仍然为Nan的行，例如第一行
         d['change_wo_short'] = d['change_w_short'] = d.close/d.close.shift(1) # 只做多情况下与上一天的变化比例，会在第一行留下nan
         d.loc[d.action == -1,'change_wo_short'] = 1     # 不做空的日子，与上一天相比没变化
         d.loc[d.action == -1,'change_w_short'] **= -1   # 有做空的日子，与上一天的比率取倒数
-        d[['change_wo_short','change_w_short']] = d[['change_wo_short','change_w_short']].fillna(1)# 补齐第一行的Nan
+        d[['change_wo_short','change_w_short']].fillna(1, inplace=True)# 补齐第一行的Nan
         self.df = d
         return self
     

@@ -7,7 +7,7 @@ import torch
 import warnings
 warnings.filterwarnings('ignore')
 from data import DataStorage, BaostockDataWorker 
-from globals import indicators, OCLHVA, Normed_OCLHVA, REWARD, WEEKDAY, WINDOW_SIZE
+from globals import indicators, OCLHVA, Normed_OCLHVA, REWARD, WEEKDAY, WINDOW_SIZE, TUSHARE_MAPPING, BAOSTOCK_MAPPING
 import numpy as np
 
 
@@ -40,7 +40,7 @@ class Preprocessor():
         # StockDataFrame requires https://github.com/jealous/stockstats/README.md
         # 但实验过用原来的字段StockDataFrame也可以识别，也不是非改不可
         # 注意这里改成了 'tic', 'date', 'volume'，以后均按这个列名
-        data_df.rename(columns={"ts_code": "ticker", "trade_date": "date","vol":"volume"}, inplace = True) 
+        data_df.rename(columns=TUSHARE_MAPPING, inplace = True) 
         # 更改tushare date 列数据格式，原来为“20220122”形如“2022-01-22”。对于baostock有可能不一样
         data_df["date"] = data_df.date.apply(lambda x: datetime.strptime(x, "%Y%m%d").strftime("%Y-%m-%d")) 
         # 删除为空的数据行，just IN CASE
@@ -68,7 +68,7 @@ class Preprocessor():
         # 但实验过用原来的字段StockDataFrame也可以识别，也不是非改不可
         # 注意这里改成了 'ticker', 'date', 'volume'，以后的处理统一按这个列名
         # baostock专用
-        data_df.rename(columns={"code": "ticker"},inplace=True) 
+        data_df.rename(columns= BAOSTOCK_MAPPING,inplace=True) 
         # data_df["date"] = data_df.date.apply(lambda x: datetime.strptime(x, "%Y%m%d").strftime("%Y-%m-%d")) 
         # 删除为空的数据行
         # 按照date从小到大进行排序

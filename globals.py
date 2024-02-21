@@ -14,8 +14,10 @@ Flex = namedtuple('Flex', ['peak', 'waist', 'bottom'])
 flex = Flex(-1,0,1)
 #%% 
 WINDOW_SIZE = 20
+LookBack = 100  # same as window_size
+LookAhead = 20  # same as horizon
 DATE_FORMAT = "%Y-%m-%d"
-REWARD = ['landmark','buy_reward', 'hold_reward', 'sell_reward']
+REWARD = ['landmark','buy_reward','sell_reward','hold_reward']
 WEEKDAY = ['dayofweek']   # 注意这个是字符串，在和其他list相连的时候需要list + [WEEKDAY]，主要是用在对df[WEEKDAY]直接赋值
 
 #%% prefix
@@ -33,12 +35,12 @@ mkt_oclhva_normed = [MARKET_PREFIX+x for x in Normed_OCLHVA]
 # indicators collection # "MFI","EMV","VR","PSY","OBV" are volume-concerned indicators
 # https://github.com/jealous/stockstats
 indicators = ['kdjk', 'kdjd', 'kdjj']
+indicators = ['boll','boll_lb','boll_ub']
 indicators += ["rsi_6", "rsi_12", "rsi_24"]
 indicators += ["macds","macdh","atr","vr","adx"] 
 indicators += ['close_5_ema', 'close_10_ema','close_20_ema','close_50_ema','close_100_ema']     # 有很多策略要用到很长周期的均线，若基于20日窗口就没法计算
 mkt_indicators = [MARKET_PREFIX+x for x in indicators]
 sct_indicators = [SECTOR_PREFIX+x for x in indicators]
-indicators_plus = ['macdv', 'reflex']
 # for reflex, refer to https://zhuanlan.zhihu.com/p/557480350
 #%%
 TS_TOKEN = "72d1e47c3b0728a26bfc4a9f54132b195890fa843815f896708515f1"

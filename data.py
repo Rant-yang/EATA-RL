@@ -3,11 +3,10 @@ import os
 import sqlite3
 import pandas as pd
 from functools import partial
-from globals import MAIN_PATH, OCLHVA, MKT_OCLHVA, BAOSTOCK_MAPPING, WINDOW_SIZE
-import pysnooper
+from globals import MAIN_PATH, OCLHVA, MKT_OCLHVA, BAOSTOCK_MAPPING, WINDOW_SIZE, TS_TOKEN
 from datetime import datetime, timedelta
 from itertools import count
-# import tushare as ts
+import tushare as ts
 
 DATABASE = "stock.db"
 DATABASE_PATH = MAIN_PATH  # 这句话在其他import的时候就已经执行，所以未必能达到想要的效果 # 直接调用上面globals.MAIN_PATH 导致不能正确建立conn，main不能及时修改globals.MAIN_PATH
@@ -67,7 +66,6 @@ class DataStorage():
 
 class DataWorker(object):
     def __init__(self) -> None:
-        # self.ds = DataStorage()
         self.begin = "2000-01-01"
 
     def __del__(self) -> None:
@@ -84,6 +82,7 @@ class DataWorker(object):
         pass
     
     def save(self, rs:pd.DataFrame) -> bool:
+        # self.ds = DataStorage()
         pass
     
     def market_calendar(self):
@@ -198,7 +197,7 @@ class BaostockDataWorker(DataWorker):
 class TushareDataWorker(DataWorker):
     def __init__(self) -> None:
         super().__init__()
-        ts.set_token('72d1e47c3b0728a26bfc4a9f54132b195890fa843815f896708515f1')
+        ts.set_token(TS_TOKEN)
         self.pro = ts.pro_api()
         self.ds = DataStorage()
         # ds.empty_raw()    # 清空raw数据库
