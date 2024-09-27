@@ -12,15 +12,26 @@ import matplotlib.ticker as ticker
 from globals import WINDOW_SIZE
 
 # 检查df的合法性
-def validate(d, required, typeof=[pd.DataFrame, stockstats.StockDataFrame]):    
+def validate(d, required, typeof=[pd.DataFrame, stockstats.StockDataFrame], index_type=None):    
+    ''' validate whether or not:
+    1. The type of d in list `typeof`
+    2. d should not be empty
+    3. d at least contain columns desinated by `required`
+    4. The type of d.index in list `index_type`
+    '''
+    if d.empty:
+        raise ValueError("The DataFrame must not be empty.")
+
     if not any(isinstance(d,i) for i in typeof):   # 必须是其中之一
         raise TypeError(f"Type must be either of {typeof}")
 
     if not all(f in d.columns for f in required): # 所有字段都必须存在
         raise ValueError(f"The DataFrame must contain columns:{required}")
-        
-    if d.empty:
-        raise ValueError("The DataFrame must not be empty.")
+
+    if index_type is not None:
+        if not any(isinstance(d.index, i) for i in index_type): # index的类型必须在限定范围里
+            raise ValueError(f"Index must be one type of {index_type}")
+
 
 ## 关于时间序列拐点检测方法, check the following links:
 # 魔法数字（二）——通过python 中的kneed包找到拐点的方法 - 恒沙数的文章 - 知乎 https://zhuanlan.zhihu.com/p/444403256

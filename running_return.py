@@ -40,6 +40,6 @@ class RunningReturn(Agent):
 if __name__ == "__main__":
     df = pd.read_excel("000016(full).xls", dtype={'code':'str'}, header = 0)
     df = df.sample(10)
-    # df.loc[len(df)] = ['sz.510050', '上证50ETF', 0, 'sz.510050']   # code	name	weight	sector,  sz50etf, baostock 没有指数数据
+    # df.loc[len(df)] = ['sz.510050', '上证50ETF', 0, 'sz.510050']   # code	name weight	sector,  sz50etf, baostock 没有指数数据
     test(RunningReturn, df)
     inference(RunningReturn, df)

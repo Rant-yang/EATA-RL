@@ -26,6 +26,7 @@ class Evaluator():
         before: self.df.columns = ['ticker','date','close','action','reward']
         after: self.df.columns = ['ticker','date','close','action','reward','real_action','change_wo_short', 'change_w_short','asset_wo_short','asset_w_short']
         4 columns added.
+        action in (-1, 0, 1)
         '''
         # def reduce_same(d1):  # action buy和sell的action应该交替出现，所以应该合并连续的sell或连续的buy
         #     i = 0
@@ -69,7 +70,6 @@ class Evaluator():
         # self.df[['change_wo_short','change_w_short']] = self.df[['change_wo_short','change_w_short']].fillna(1)
         
         # a more elegant way:
-
         d = self.df.copy()
         # 去掉一开头的0
         # idx = (d.action != 0).idxmax()    # False<True，寻找第一个不等于0的
@@ -79,7 +79,7 @@ class Evaluator():
             # d['action'] = list(map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1)))
             # d['action'].map(lambda x,y: y if x==0 else x, d['action'], d['action'].shift(1))) # 做法2
         # 做法3：将0替换成Nan，然后用ffill()填入上面的最近的1或-1值。@21级苏伟政
-        d['action'].replace(0,np.nan).ffill(inplace=True) 
+        d['action'].replace(0,np.nan).ffill(inplace=True)  # hold的内涵：前面为buy时我继续buy，前面sell时我继续sell
         d['action'] = d['action'].dropna().astype('int')  # 去掉仍然为Nan的行，例如第一行
         d['change_wo_short'] = d['change_w_short'] = d.close/d.close.shift(1) # 只做多情况下与上一天的变化比例，会在第一行留下nan
         d.loc[d.action == -1,'change_wo_short'] = 1     # 不做空的日子，与上一天相比没变化，等同于 **=0

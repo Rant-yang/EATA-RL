@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from globals import summary, test_result
 from pathlib import Path
+from functools import partial
 
 def load_css(file_name:str = "streamlit.css")->None:
     """
@@ -31,7 +32,7 @@ class WebServer:
         self.dfs = [pd.read_csv(data_folder/f'{f}', index_col=0) for f in files]
         # 下一步改为根据agents，遍历指定目录
 
-    def process(self, df, days = 120):
+    def process(self, df, days = 240):
         d = df.tail(days).copy()   #选最后n个交易日的数据(大致1年），避免最后做出的图过于拥挤。
         self.data_all = d.shape[0]
         self.ticker = d.ticker.iloc[0]
@@ -56,6 +57,28 @@ class WebServer:
 
         self.df = d 
         return d
+    
+    def attach_grey(self, sdf, axes):
+        '''
+            requires: sdf[['action','norm_close']] and a `date` as index
+        '''
+        sdf['last_action'] = sdf.action.shift(1)    # compared with yesterday
+        action_days = sdf[sdf.action != sdf.last_action] # find the flex
+        action_days = action_days.reset_index() # 将index恢复为column
+        action_days['next_day'] = action_days.shift(-1).date
+        action_days['next_day'] = action_days['next_day'].fillna(sdf.index[-1]) # 用d最后一行的date补齐最后一行的空值
+        short_days = action_days[action_days.action == -1]['next_day']
+        short_days = short_days.reset_index()   # 做空的期间 (data, next_day)
+
+        def plot_range(x, ax, df, floor):
+            # it requires x.action, x.date , x.next_day, dates, x.close
+            ax.fill_between(df.index, floor, df.norm_close, (x.date < df.index) & (df.index< x.next_day), color = "k", alpha = .1)
+        
+        for ax in axes:
+            pr = partial(plot_range, df = sdf, floor=sdf.norm_close.min(), ax = ax)     # 生成一个偏函数，供apply使用
+            short_days.apply(pr, axis=1)
+        
+        return short_days
 
     def run(self):
         self.obj = st.sidebar.radio('Choose one',self.agents)
@@ -75,8 +98,9 @@ class WebServer:
             # histograms of metrics in a 2*3 grid
             my_list = ['accuracy','precision','recall', 'f1_score', 'fpr','reward']
             p = self.perf[my_list]
-            f = plt.figure(figsize=(10,5))
-            p.plot(ax = f, subplots = True, kind = 'hist', bins=50, layout = (2, 3), \
+            # f = plt.figure(figsize=(10,5))
+            f, axes = plt.subplots(1,1,figsize=(10,5))
+            p.plot(ax = axes, subplots = True, kind = 'hist', bins=50, layout = (2, 3), \
                 legend = False, title = p.columns.to_list(), colormap='viridis', alpha = 1, sharex=True)
 
             # f,axes = plt.subplots(nrows=2,ncols=3,figsize=(15,8))
@@ -108,7 +132,7 @@ class WebServer:
             # 画图 close+asset+action
             fig = plt.figure(figsize=(15,8))
             ax1 = fig.add_subplot(111)
-            ax1.plot(self.df.date, self.asset_wo_short, 'm-.', label="without short", rotation = 45)
+            ax1.plot(self.df.date, self.asset_wo_short, 'm-.', label="without short")
             ax1.plot(self.df.date, self.asset_w_short, 'g-', label="with short")
             ax1.legend(loc=1)
             ax1.set_ylabel('Assets change/Close')
@@ -117,6 +141,7 @@ class WebServer:
             ax2.fill_between(self.df.date, floor, self.df.close, color = 'b', alpha = 0.1)  # close 面积填充
 
             # 采用灰底来表示做空时间，白底做多
+            # self.attach_grey(df,[ax1])
             def plot_range(x):
                 if x.action == -1:  # 区间起点为卖出
                     ax2.fill_between(self.df.date, floor, ceiling, (x.date <self.df.date) & (self.df.date< x.next_day), color = "k", alpha = 0.1)
