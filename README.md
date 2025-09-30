@@ -125,7 +125,6 @@ sequenceDiagram
 
   - [SimpleNEMoTS](cci:2://file:///Users/yin/Desktop/doing/eata/nemots_adapter.py:132:0-224:40) 在 [nemots_adapter.py](cci:7://file:///Users/yin/Desktop/doing/eata/nemots_adapter.py:0:0-0:0) 中，通过随机表达式模板与 [StockScorer.score_expression()](cci:1://file:///Users/yin/Desktop/doing/eata/nemots_adapter.py:71:4-130:34) 简化评估，数据不足时兜底。
 
-
 ## Backtest Architecture (main.py entry)
 
 ```mermaid
@@ -226,5 +225,3 @@ graph TD
 - **搜索/策略**: `MCTS` 结合 `PVNetCtx` 与 UCB；`score.score_with_est()` 打分；`Tracker` 采集训练指标；`data_buffer` 驱动 NN 融合系数。
 - **继承**: 滑窗训练中将 `previous_best_expression` 作为 `inherited_tree` 传入，提升稳定性。
 - **输出**: 最优表达式与评估指标（MAE/MSE/Corr/Reward）用于后续交易信号与回测。
-
-<style>#mermaid-1759193952053{font-family:sans-serif;font-size:16px;fill:#333;}#mermaid-1759193952053 .error-icon{fill:#552222;}#mermaid-1759193952053 .error-text{fill:#552222;stroke:#552222;}#mermaid-1759193952053 .edge-thickness-normal{stroke-width:2px;}#mermaid-1759193952053 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1759193952053 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1759193952053 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1759193952053 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1759193952053 .marker{fill:#333333;}#mermaid-1759193952053 .marker.cross{stroke:#333333;}#mermaid-1759193952053 svg{font-family:sans-serif;font-size:16px;}#mermaid-1759193952053 .label{font-family:sans-serif;color:#333;}#mermaid-1759193952053 .label text{fill:#333;}#mermaid-1759193952053 .node rect,#mermaid-1759193952053 .node circle,#mermaid-1759193952053 .node ellipse,#mermaid-1759193952053 .node polygon,#mermaid-1759193952053 .node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#mermaid-1759193952053 .node .label{text-align:center;}#mermaid-1759193952053 .node.clickable{cursor:pointer;}#mermaid-1759193952053 .arrowheadPath{fill:#333333;}#mermaid-1759193952053 .edgePath .path{stroke:#333333;stroke-width:1.5px;}#mermaid-1759193952053 .flowchart-link{stroke:#333333;fill:none;}#mermaid-1759193952053 .edgeLabel{background-color:#e8e8e8;text-align:center;}#mermaid-1759193952053 .edgeLabel rect{opacity:0.5;background-color:#e8e8e8;fill:#e8e8e8;}#mermaid-1759193952053 .cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}#mermaid-1759193952053 .cluster text{fill:#333;}#mermaid-1759193952053 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:sans-serif;font-size:12px;background:hsl(80,100%,96.2745098039%);border:1px solid #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1759193952053:root{--mermaid-font-family:sans-serif;}#mermaid-1759193952053:root{--mermaid-alt-font-family:sans-serif;}#mermaid-1759193952053 flowchart{fill:apa;}</style>
