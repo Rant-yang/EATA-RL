@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import empyrical as ep
 from globals import summary, test_result
 from pathlib import Path
 from functools import partial
@@ -82,6 +83,8 @@ class WebServer:
 
     def run(self):
         self.obj = st.sidebar.radio('Choose one',self.agents)
+        # KPI scope toggle
+        kpi_scope = st.sidebar.radio('KPI scope', ['Window','Full'], index=0)
         self.get_folder()
         st.markdown(f'''<style> .appview-container .main .block-container{{
             padding-top: {1}rem; 
@@ -94,22 +97,49 @@ class WebServer:
 
         if self.perf is not None:
             st.header("Summary")
-
-            # histograms of metrics in a 2*3 grid
-            my_list = ['accuracy','precision','recall', 'f1_score', 'fpr','reward']
-            p = self.perf[my_list]
-            # f = plt.figure(figsize=(10,5))
-            f, axes = plt.subplots(1,1,figsize=(10,5))
-            p.plot(ax = axes, subplots = True, kind = 'hist', bins=50, layout = (2, 3), \
-                legend = False, title = p.columns.to_list(), colormap='viridis', alpha = 1, sharex=True)
-
-            # f,axes = plt.subplots(nrows=2,ncols=3,figsize=(15,8))
-            # from itertools import count
-            # for i,m in zip(count(start = 0, step = 1), my_list):
-            #     f.axes[i].hist(self.perf[m], bins = 20, alpha = 0.8) 
-            #     f.axes[i].set_title(m)
-            st.pyplot(f)
-            st.dataframe(self.perf)
+            # histograms of metrics (classification + empyrical metrics)
+            base_cols = ['accuracy','precision','recall','f1_score','fpr','reward']
+            extra_cols = ['ann_ret_wo','ann_ret_w','sharpe_wo','sharpe_w','max_dd_wo','max_dd_w']
+            my_list = [c for c in base_cols + extra_cols if c in self.perf.columns]
+            if len(my_list) > 0:
+                p = self.perf[my_list]
+                # dynamic layout: up to 3 cols per row
+                import math
+                n = len(my_list)
+                ncols = min(3, n)
+                nrows = math.ceil(n / ncols)
+                f, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5*ncols, 3*nrows))
+                # Normalize axes to flat iterable
+                if isinstance(axes, plt.Axes):
+                    axes = [axes]
+                else:
+                    axes = axes.flatten()
+                for i, col in enumerate(my_list):
+                    ax = axes[i]
+                    p[col].plot(kind='hist', bins=50, ax=ax, title=col, color='tab:blue', alpha=0.8)
+                    # Percent axis for annual return and drawdown columns
+                    if col in ['ann_ret_wo','ann_ret_w','max_dd_wo','max_dd_w']:
+                        ax.xaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+                    # Sharpe axis formatting
+                    if col in ['sharpe_wo','sharpe_w']:
+                        ax.xaxis.set_major_locator(ticker.MaxNLocator(6))
+                        ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+                # Hide unused axes
+                for j in range(i+1, len(axes)):
+                    axes[j].axis('off')
+                st.pyplot(f)
+                plt.close(f)
+            # show table with percentage formatting for annual returns
+            df_disp = self.perf.copy()
+            percent_cols = [c for c in ['ann_ret_wo','ann_ret_w'] if c in df_disp.columns]
+            if percent_cols:
+                try:
+                    st.dataframe(df_disp.style.format({c: '{:.2%}' for c in percent_cols}))
+                except Exception:
+                    # fallback to plain dataframe
+                    st.dataframe(df_disp)
+            else:
+                st.dataframe(df_disp)
         
         # 对单个股票做图
         for df in self.dfs:
@@ -117,12 +147,35 @@ class WebServer:
             # st.subheader("CLOSE & ASSET GRAPH")
             st.metric(label="Ticker", value = self.ticker, delta = 'latest '+ self.record +' days')
             
-            # 年化利率计算
-            col1, col2 = st.columns(2)
-            col1.metric(label="Annual return - Short",
-                        value = round(self.asset_w / self.data_all * 250, 2)) #一年的交易日250天
-            col2.metric(label="Annual return - No Short",
-                        value = round(self.asset_wo / self.data_all * 250, 2))
+            # KPIs (Window-based using empyrical)
+            # Build daily returns from change multipliers if available
+            scope_df = self.df if kpi_scope == 'Window' else df
+            r_wo = (scope_df['change_wo_short'].astype(float) - 1) if 'change_wo_short' in scope_df.columns else pd.Series(dtype=float)
+            r_w = (scope_df['change_w_short'].astype(float) - 1) if 'change_w_short' in scope_df.columns else pd.Series(dtype=float)
+            def safe_metric(func, r):
+                try:
+                    if r is None or r.empty or r.isna().all():
+                        return float('nan')
+                    r2 = r.replace([float('inf'), float('-inf')], 0).fillna(0)
+                    return float(func(r2))
+                except Exception:
+                    return float('nan')
+
+            ann_wo = safe_metric(ep.annual_return, r_wo)
+            ann_w = safe_metric(ep.annual_return, r_w)
+            shp_wo = safe_metric(ep.sharpe_ratio, r_wo)
+            shp_w = safe_metric(ep.sharpe_ratio, r_w)
+            mdd_wo = safe_metric(ep.max_drawdown, r_wo)
+            mdd_w = safe_metric(ep.max_drawdown, r_w)
+
+            st.subheader(f"KPIs ({kpi_scope})")
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            c1.metric(label="AnnRet (No Short)", value = (f"{ann_wo*100:.2f}%" if pd.notna(ann_wo) else "-"))
+            c2.metric(label="AnnRet (Short)", value = (f"{ann_w*100:.2f}%" if pd.notna(ann_w) else "-"))
+            c3.metric(label="Sharpe (No Short)", value = (f"{shp_wo:.2f}" if pd.notna(shp_wo) else "-"))
+            c4.metric(label="Sharpe (Short)", value = (f"{shp_w:.2f}" if pd.notna(shp_w) else "-"))
+            c5.metric(label="MaxDD (No Short)", value = (f"{mdd_wo*100:.2f}%" if pd.notna(mdd_wo) else "-"))
+            c6.metric(label="MaxDD (Short)", value = (f"{mdd_w*100:.2f}%" if pd.notna(mdd_w) else "-"))
             
             # 确定绘图的地板和天花板
             floor = min(self.df.close.min(), self.asset_w_short.min(), self.asset_wo_short.min())

@@ -1,184 +1,235 @@
-
-
 import numpy as np
 import pandas as pd
-from datetime import datetime
-from data import BaostockDataWorker
-from preprocess import Preprocessor
+import torch
+from typing import Optional, Dict, Any, List, Tuple
+from scipy.stats import wasserstein_distance
 
-# 导入NEMoTS
-try:
-    from nemots_adapter import NEMoTSPredictor
-    NEMOTS_AVAILABLE = True
-except ImportError:
-    print("⚠️ NEMoTS不可用，使用简化逻辑")
-    NEMOTS_AVAILABLE = False
+# 导入新的NEMoTS核心模块
+from eata_agent.engine import Engine
+from eata_agent.args import Args
 
-class Agent():
-    def __init__(self, df: pd.DataFrame):
-        """
-        NEMoTS Agent - 完全替换传统技术指标
-        @param df: 股票列表 columns=['code', 'name', 'weight', 'sector']
-        """
+class Agent:
+    def __init__(self, df: pd.DataFrame, lookback: int = 100, lookahead: int = 20):
         self.stock_list = df
+        self.lookback = lookback
+        self.lookahead = lookahead
+        self.hyperparams = self._create_hyperparams()
+        self.engine = Engine(self.hyperparams)
+        self.previous_best_tree = None
+        self.previous_best_expression = None
+        self.is_trained = False
+        self.training_history = []
+        self.__name__ = 'EATA_Agent_v3.1_fixed_strategy'
+
+        print("EATA Agent (固定策略模式) 初始化完成")
+        print(f"   - Lookback={self.lookback}, Lookahead={self.lookahead}")
+        print("   - 决策规则: 固定 Q25/Q75 共识规则")
+
+    def _create_hyperparams(self) -> Args:
+        """创建超参数配置 - 增强版"""
+        args = Args()
+        args.device = torch.device("cpu")
+        args.seed = 42
+        args.seq_in = self.lookback
+        args.seq_out = self.lookahead
+        args.used_dimension = 1
+        args.features = 'M'
+        args.symbolic_lib = "NEMoTS"
+        args.max_len = 35
+        args.max_module_init = 10
+        args.num_transplant = 5
+        args.num_runs = 5
+        args.eta = 1.0
+        args.num_aug = 3
+        args.exploration_rate = 1 / np.sqrt(2)
+        args.transplant_step = 800
+        args.norm_threshold = 1e-5
+        args.epoch = 10
+        args.round = 2
+        args.train_size = 64
+        args.lr = 1e-5
+        args.weight_decay = 0.0001
+        args.clip = 5.0
+        args.buffer_size = 64
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
+        return args
+
+    def _prepare_data(self, df: pd.DataFrame) -> np.ndarray:
+        """准备单个滑动窗口的数据"""
+        feature_cols = ['open', 'high', 'low', 'close', 'volume', 'amount']
+        if not all(col in df.columns for col in feature_cols):
+            raise ValueError(f"输入数据缺少必要列: 需要 {feature_cols}")
         
-        # 数据准备
-        self.dataworker = BaostockDataWorker()
-        self.preprcessor = Preprocessor()
-        self.window_size = 20
+        data = df[feature_cols].values
+        diff = np.diff(data, axis=0)
+        last_row = data[:-1]
+        last_row[last_row == 0] = 1e-9
+        change_rates = diff / last_row
         
+        change_rates[:, :4] = np.clip(change_rates[:, :4], -0.1, 0.1)
+        change_rates[:, 4:] = np.clip(change_rates[:, 4:], -0.5, 0.5)
+
+        if len(change_rates) < self.lookback + self.lookahead:
+            raise ValueError(f"数据长度不足：需要{self.lookback + self.lookahead}，实际可用{len(change_rates)}")
+        
+        window_data = change_rates[-(self.lookback + self.lookahead):]
+        return window_data
+
+    def _predict_distribution(self, top_10_exps: List[str], lookback_data: np.ndarray) -> np.ndarray:
+        """为Top-10表达式生成未来预测分布"""
+        all_predictions = []
+        lookback_data_transposed = lookback_data.T
+
+        eval_vars = {"np": np}
+        for i in range(lookback_data_transposed.shape[0]):
+            eval_vars[f'x{i}'] = lookback_data_transposed[i, :]
+
+        for exp in top_10_exps:
+            try:
+                corrected_expression = exp.replace("exp", "np.exp").replace("cos", "np.cos").replace("sin", "np.sin").replace("sqrt", "np.sqrt").replace("log", "np.log")
+                historical_fit = eval(corrected_expression, {"__builtins__": None}, eval_vars)
+
+                if not isinstance(historical_fit, np.ndarray) or historical_fit.ndim == 0:
+                    historical_fit = np.repeat(historical_fit, self.lookback)
+                
+                time_axis = np.arange(self.lookback)
+                coeffs = np.polyfit(time_axis, historical_fit, 1)
+                trend_line = np.poly1d(coeffs)
+
+                future_time_axis = np.arange(self.lookback, self.lookback + self.lookahead)
+                future_predictions = trend_line(future_time_axis)
+                all_predictions.extend(future_predictions)
+
+            except Exception as e:
+                print(f"表达式 '{exp}' 预测失败: {e}。将填充0。")
+                all_predictions.extend([0] * self.lookahead)
+        
+        return np.array(all_predictions)
+
+    def _calculate_rl_reward_and_signal(self, prediction_distribution: np.ndarray, lookahead_ground_truth: np.ndarray, shares_held: int) -> Tuple[float, int]:
+        """
+        计算RL奖励和交易信号
+        - RL奖励: 基于预测分布与真实分布的瓦瑟斯坦距离。
+        - 交易信号: 基于固定的Q25/Q75规则。
+        """
         try:
-            self.stocks_datum = self._prepare_data(self.stock_list.code, ktype='d')
-            self.stock_list['market'] = 'sh.000001'  # 简化大盘指数
-        except Exception as e:
-            print(f"⚠️ 数据准备失败: {e}")
-            self.stocks_datum = []
-        
-        # 初始化NEMoTS预测器（在数据准备后）
-        if NEMOTS_AVAILABLE:
-            self.nemots_predictor = NEMoTSPredictor(lookback=20)
-            self.__name__ = 'NEMoTS_Agent'
-            print("🤖 初始化NEMoTS Agent")
+            if prediction_distribution.size == 0:
+                # 如果没有预测，则奖励为0，动作为持有
+                return 0.0, 0
+
+            # --- 交易信号决策 (逻辑保持不变) ---
+            strategy = [25, 75]
+            q_low, q_high = np.percentile(prediction_distribution, strategy)
+            intended_signal = 0
+            if q_low > 0:
+                intended_signal = 1
+                print(f"  [决策] 预测分布的 25% 分位数 > 0，生成意图信号: 买入")
+            elif q_high < 0:
+                intended_signal = -1
+                print(f"  [决策] 预测分布的 75% 分位数 < 0，生成意图信号: 卖出")
+            else:
+                print("  [决策] 预测分布跨越零点，信号不明确，生成意图信号: 持有")
+
+            # --- RL奖励计算 (新逻辑: 瓦瑟斯坦距离) ---
+            # 1. 提取真实的日收益率 (lookahead期间的收盘价变化率)
+            actual_returns = lookahead_ground_truth.T[3, :] 
+
+            # 2. 计算预测分布与真实分布之间的瓦瑟斯坦距离
+            #    注意：scipy的实现可以处理两个样本数量不同的分布
+            distance = wasserstein_distance(prediction_distribution, actual_returns)
+
+            # 3. 将距离转换为奖励 (距离越小，奖励越高)
+            #    加1是为了防止距离为0时出现除零错误
+            rl_reward = 1 / (1 + distance)
             
-            # 尝试用历史数据训练NEMoTS
-            try:
-                if len(self.stocks_datum) > 0 and len(self.stocks_datum[0]) > 20:
-                    print("🧠 开始训练NEMoTS...")
-                    self.nemots_predictor.fit(self.stocks_datum[0])
-                    print("✅ NEMoTS训练完成")
-            except Exception as e:
-                print(f"⚠️ NEMoTS训练失败: {e}")
-        else:
-            self.nemots_predictor = None
-            self.__name__ = 'Fallback_Agent'
-            print("⚠️ 使用简化Agent")
-    
-    def _prepare_data(self, codes, ktype='d'):
-        """简化数据准备"""
+            # 返回rl_reward用于学习, intended_signal用于回测框架执行交易
+            return rl_reward, intended_signal
+        except Exception as e:
+            print(f"--- 🚨 在 _calculate_rl_reward_and_signal 中捕获到致命错误 🚨 ---")
+            print(f"错误信息: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"--- 诊断结束 ---")
+            return 0.0, 0
+
+    def criteria(self, d: pd.DataFrame, shares_held: int) -> int:
+        """核心决策函数，集成策略学习流程"""
         try:
-            d1 = [self.dataworker.latest(c, ktype=ktype, days=self.window_size * 3) for c in codes]
-            d2 = [self.preprcessor.load(s).bundle_process() for s in d1]
-            return d2
-        except:
-            return []
-    
-    def get_market(self, ticker: str) -> str:
-        """获取大盘指数代码"""
-        return "sh.000001"  # 简化为上证指数
-    
-    @staticmethod
-    def criteria(d: pd.DataFrame) -> int:
-        """
-        NEMoTS智能信号生成 - 替换所有传统指标逻辑
-        @input d: window_size的df
-        @output: 交易信号 1(买入)/-1(卖出)/0(持有)
-        """
-        if NEMOTS_AVAILABLE:
-            try:
-                # 创建并训练临时NEMoTS预测器
-                predictor = NEMoTSPredictor(lookback=min(10, len(d)-1), use_full_nemots=False)
-                if len(d) > 10:  # 只有足够数据时才训练
-                    # 确保数据包含必要字段
-                    d_copy = d.copy()
-                    if 'amount' not in d_copy.columns and 'volume' in d_copy.columns and 'close' in d_copy.columns:
-                        d_copy['amount'] = d_copy['volume'] * d_copy['close']
-                    predictor.fit(d_copy)
-                return predictor.predict_action(d)
-            except Exception as e:
-                print(f"⚠️ NEMoTS预测失败: {e}")
-        
-        # 简化回退逻辑
-        try:
-            if len(d) > 0:
-                recent_close = d['close'].iloc[-5:].mean() if len(d) >= 5 else d['close'].iloc[-1]
-                prev_close = d['close'].iloc[-10:-5].mean() if len(d) >= 10 else d['close'].iloc[0]
-                return 1 if recent_close > prev_close else -1
-        except:
-            pass
-        return 0
-    
+            if self.previous_best_tree is not None:
+                print("检测到已有语法树，切换到热启动参数...")
+                self.engine.model.num_runs = 3# 热启动时也增加探索
+                self.engine.model.num_transplant = 5
+                self.engine.model.transplant_step = 300
+                self.engine.model.num_aug = 3
+            else:
+                print("首次运行，使用重量级参数...")
+                # 使用更强的冷启动参数
+                self.engine.model.num_runs = 5
+                self.engine.model.max_len = 35
+
+            full_window_data = self._prepare_data(d)
+            lookback_data = full_window_data[:self.lookback, :]
+            lookahead_data = full_window_data[-self.lookahead:, :]
+
+            # engine.simulate 现在返回 mcts_records
+            best_exp, top_10_exps, top_10_scores, _, mae, mse, corr, _, mcts_score, new_best_tree, mcts_records = self.engine.simulate(
+                full_window_data, previous_best_tree=self.previous_best_tree
+            )
+
+            self.previous_best_expression = str(best_exp)
+            self.previous_best_tree = new_best_tree
+            self.is_trained = True
+            
+            record = {'mae': mae, 'corr': corr, 'mcts_score': mcts_score}
+            self.training_history.append(record)
+            print(f"NEMoTS运行完成: MAE={mae:.4f}, Corr={corr:.4f}, MCTS Score={mcts_score:.4f}")
+
+            prediction_distribution = self._predict_distribution(top_10_exps, lookback_data)
+            print(f"生成了 {len(prediction_distribution)} 个预测点。")
+
+            rl_reward, trading_signal = self._calculate_rl_reward_and_signal(
+                prediction_distribution, lookahead_data, shares_held
+            )
+            print(f"RL奖励 (基于真实信号): {rl_reward:.4f}, 意图交易信号: {trading_signal}")
+
+            # “盖戳”流程：将最终的rl_reward附加到本次窗口产生的所有经验上
+            stamped_experiences = []
+            for experience in mcts_records:
+                # experience 是一个元组 (state, seq, policy, value)
+                stamped_experience = experience + (rl_reward,)
+                stamped_experiences.append(stamped_experience)
+            
+            # 将“盖戳”后的经验数据存入引擎，并由引擎决定是否触发训练
+            if stamped_experiences:
+                self.engine.store_experiences(stamped_experiences)
+
+            return trading_signal, rl_reward
+
+        except Exception as e:
+            print(f"NEMoTS Agent 'criteria' 失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0
+
+    # choose_action, vote, strength 方法保持不变
     @classmethod
     def choose_action(cls, s: tuple) -> int:
-        """
-        NEMoTS智能动作选择 - RL兼容
-        @input s: (s0, s1, s2, s3) 分别为5分钟线、股票日线、板块日线、大盘日线
-        @output: 交易动作 1/-1/0
-        """
         try:
-            s0, s1, s2, s3 = s
-            return cls.criteria(s1)  # 使用NEMoTS对股票日线数据做决策
+            _, s1, _, _ = s
+            temp_agent = Agent(pd.DataFrame())
+            # 注意：这里的静态调用无法知道持仓状态，这是一个简化处理。
+            # 在真实的多股票场景中，需要为每个股票维护一个Agent实例。
+            return temp_agent.criteria(s1, shares_held=0) # 假设默认是空仓
         except Exception as e:
-            print(f"⚠️ 动作选择失败: {e}")
+            print(f"动作选择失败: {e}")
             return 0
-    
+
     def vote(self) -> int:
-        """使用NEMoTS计算ETF总体信号"""
-        if NEMOTS_AVAILABLE and self.nemots_predictor and len(self.stocks_datum) > 0:
-            try:
-                # 使用NEMoTS对每只股票生成信号
-                signals = []
-                for stock_data in self.stocks_datum:
-                    if len(stock_data) > 0:
-                        signal = self.nemots_predictor.predict_action(stock_data)
-                        signals.append(signal)
-                    else:
-                        signals.append(0)
-                
-                # 按权重加权平均
-                if len(signals) > 0:
-                    weighted_signal = np.average(signals, weights=self.stock_list.weight)
-                    return int(np.sign(weighted_signal) * 50)  # 转换为类似原来的范围
-            except Exception as e:
-                print(f"⚠️ NEMoTS投票失败: {e}")
-        
-        # 简化回退逻辑
-        return 50  # 中性信号
-    
-    def etf_action(self, score) -> int:
-        """ETF动作决策"""
-        if score > 80:
-            return 1
-        elif score < 50:
-            return -1
-        return 0
-    
-    def stock_momentum(self):
-        """股票动量计算（简化版）"""
-        try:
-            sig21 = lambda x: 2/(1 + np.exp(-x)) - 1
-            
-            def criteria(d):
-                if len(d) > 1:
-                    return d['close'].diff(1).iloc[-1]
-                return 0
-            
-            self.stock_list['stock_momentum'] = [sig21(criteria(s)) for s in self.stocks_datum]
-            return self.stock_list['stock_momentum']
-        except:
-            self.stock_list['stock_momentum'] = [0] * len(self.stock_list)
-            return self.stock_list['stock_momentum']
-    
+        print("'vote' 方法被简化，仅返回中性信号。请在 predict.py 中实现多股票循环。")
+        return 50
+
     def strength(self, w1: float, w2: float, w3: float, w4: float) -> pd.Series:
-        """
-        使用NEMoTS计算股票强度
-        """
-        try:
-            # 使用NEMoTS生成各项强度分数
-            self.stock_list['stock_strength'] = [self.criteria(d) for d in self.stocks_datum]
-            self.stock_list['sector_strength'] = [50] * len(self.stock_list)  # 简化
-            self.stock_list['market_strength'] = [50] * len(self.stock_list)  # 简化
-            self.stock_momentum()
-            
-            # 计算总强度
-            self.stock_list['strength'] = (
-                self.stock_list['stock_strength'] * w1 +
-                self.stock_list['sector_strength'] * w2 +
-                self.stock_list['market_strength'] * w3 +
-                self.stock_list['stock_momentum'] * w4
-            )
-            
-            return self.stock_list['strength']
-        except Exception as e:
-            print(f"⚠️ 强度计算失败: {e}")
-            self.stock_list['strength'] = [50] * len(self.stock_list)
-            return self.stock_list['strength']
+        print("'strength' 方法被简化，返回固定值。")
+        self.stock_list['strength'] = [50] * len(self.stock_list)
+        return self.stock_list['strength']

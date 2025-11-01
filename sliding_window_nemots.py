@@ -10,8 +10,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # 导入NEMoTS核心模块
-from nemots.engine import Engine
-from nemots.args import Args
+from eata_agent.engine import Engine
+from eata_agent.args import Args
 
 
 class SlidingWindowNEMoTS:
@@ -64,12 +64,12 @@ class SlidingWindowNEMoTS:
         
         # NEMoTS核心参数
         args.symbolic_lib = "NEMoTS"
-        args.max_len = 20
+        args.max_len = 25
         args.max_module_init = 10
-        args.num_transplant = 2
+        args.num_transplant = 5
         args.num_runs = 3  # 减少运行次数以适应滑动窗口
         args.eta = 1.0
-        args.num_aug = 0
+        args.num_aug = 5
         args.exploration_rate = 1 / np.sqrt(2)
         args.transplant_step = 500  # 减少步数以适应滑动窗口
         args.norm_threshold = 1e-5
@@ -81,6 +81,7 @@ class SlidingWindowNEMoTS:
         args.lr = 1e-5
         args.weight_decay = 0.0001
         args.clip = 5.0
+        args.buffer_size = 64 # 明确设置经验池大小，确保alpha系数能快速增长
         
         # 随机种子
         torch.manual_seed(args.seed)
@@ -133,14 +134,14 @@ class SlidingWindowNEMoTS:
         window_data = normalized_data[start_idx:start_idx + self.lookback + self.lookahead]
         
         # 转换为tensor格式，添加batch维度
-        tensor_data = torch.FloatTensor(window_data).unsqueeze(0)  # [1, seq_len, features]
+        # tensor_data = torch.FloatTensor(window_data).unsqueeze(0)  # [1, seq_len, features]
         
         print(f"滑动窗口数据准备完成:")
         print(f"   原始数据: {len(data)} → 标准化数据: {len(normalized_data)}")
-        print(f"   窗口数据: {tensor_data.shape}")
-        print(f"   变化率范围: [{tensor_data.min().item():.4f}, {tensor_data.max().item():.4f}]")
+        # print(f"   窗口数据: {tensor_data.shape}")
+        # print(f"   变化率范围: [{tensor_data.min().item():.4f}, {tensor_data.max().item():.4f}]")
         
-        return tensor_data
+        return window_data
     
     def _inherit_previous_tree(self):
         """
@@ -163,6 +164,23 @@ class SlidingWindowNEMoTS:
         滑动窗口训练
         """
         print(f"\n开始滑动窗口训练...")
+
+        # 动态调整参数
+        if self.previous_best_tree is not None:
+            # 后续窗口，使用轻量参数
+            print("检测到已有语法树，切换到轻量化快速迭代参数...")
+            # 直接修改Model对象内部的参数以确保生效
+            self.engine.model.num_transplant = 2
+            self.engine.model.transplant_step = 100
+            self.engine.model.num_aug = 2
+        else:
+            # 首次窗口，使用重量参数
+            print("首次运行，使用重量级深度搜索参数...")
+            # 确保Model对象使用的是重量级参数
+            self.engine.model.num_transplant = 5
+            self.engine.model.transplant_step = 500
+            self.engine.model.num_aug = 5
+
         
         try:
             # 1. 准备滑动窗口数据
@@ -173,11 +191,11 @@ class SlidingWindowNEMoTS:
             
             # 3. 直接调用engine.simulate（简化调用链，传递继承的语法树）
             print(f"调用核心模块: engine.simulate...")
-            best_exp, all_times, test_data, loss, mae, mse, corr, policy, reward = self.engine.simulate(window_data, inherited_tree=inherited_tree)
+            best_exp, all_times, test_data, loss, mae, mse, corr, policy, reward, new_best_tree = self.engine.simulate(window_data, previous_best_tree=inherited_tree)
             
             # 4. 保存最优解供下次继承
             self.previous_best_expression = str(best_exp)
-            self.previous_best_tree = best_exp  # 保存语法树结构
+            self.previous_best_tree = new_best_tree  # 核心修复：保存正确的树节点对象
             
             # 5. 更新训练状态
             self.is_trained = True

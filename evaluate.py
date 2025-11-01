@@ -3,6 +3,7 @@ import numpy as np
 import stockstats
 import os
 from utils import validate
+import empyrical as ep
 
 
 class Evaluator():
@@ -18,7 +19,8 @@ class Evaluator():
     def __init__(self, df, predicted=None, episode=None ):
         self.df = df
         validate(df, required=['close', 'action'])
-        self.evaluated = pd.DataFrame(columns = ['ticker','tp','fp','tn','fn','accuracy','precision','recall','f1_score','tpr','fpr','reward'])
+        self.evaluated = pd.DataFrame(columns = ['ticker','tp','fp','tn','fn','accuracy','precision','recall','f1_score','tpr','fpr','reward',
+                                                 'ann_ret_wo','ann_ret_w','sharpe_wo','sharpe_w','max_dd_wo','max_dd_w'])
 
     def asset_change(self):
         ''' calculate asset change by percent at each action
@@ -89,15 +91,45 @@ class Evaluator():
         self.df = d
         return self
     
-    def annual_retuan(df:pd.DataFrame):
-        '''requires: df has columns ['date','close','change_wo_short','change_w_short']
-        calculate annual return with `change_wo_short` and `change_w_short`, compared with `close`
-        '''
-
-        pass
+    def annual_retuan(self):
+        d = self.df.copy()
+        r_wo = d.get('change_wo_short', pd.Series(index=d.index, dtype=float)).fillna(1).astype(float) - 1
+        r_w = d.get('change_w_short', pd.Series(index=d.index, dtype=float)).fillna(1).astype(float) - 1
+        r_wo = pd.Series(r_wo).replace([np.inf, -np.inf], 0).fillna(0)
+        r_w = pd.Series(r_w).replace([np.inf, -np.inf], 0).fillna(0)
+        try:
+            ar_wo = float(ep.annual_return(r_wo))
+        except Exception:
+            ar_wo = np.nan
+        try:
+            ar_w = float(ep.annual_return(r_w))
+        except Exception:
+            ar_w = np.nan
+        return ar_wo, ar_w
 
     def sharpe_ratio(self):
-        pass
+        d = self.df.copy()
+        r_wo = d.get('change_wo_short', pd.Series(index=d.index, dtype=float)).fillna(1).astype(float) - 1
+        r_w = d.get('change_w_short', pd.Series(index=d.index, dtype=float)).fillna(1).astype(float) - 1
+        r_wo = pd.Series(r_wo).replace([np.inf, -np.inf], 0).fillna(0)
+        r_w = pd.Series(r_w).replace([np.inf, -np.inf], 0).fillna(0)
+        try:
+            sp_wo = float(ep.sharpe_ratio(r_wo))
+        except Exception:
+            sp_wo = np.nan
+        try:
+            sp_w = float(ep.sharpe_ratio(r_w))
+        except Exception:
+            sp_w = np.nan
+        try:
+            mdd_wo = float(ep.max_drawdown(r_wo))
+        except Exception:
+            mdd_wo = np.nan
+        try:
+            mdd_w = float(ep.max_drawdown(r_w))
+        except Exception:
+            mdd_w = np.nan
+        return sp_wo, sp_w, mdd_wo, mdd_w
     
     def class_perf(self):
         '''performance as classification'''
@@ -114,7 +146,16 @@ class Evaluator():
         tpr = recall
         fpr = fp/(fp+tn)
         reward = self.df.reward.mean()
-        self.evaluated.loc[len(self.evaluated)] = [self.df.iloc[0].ticker,tp,fp,tn,fn,accuracy, precision, recall, f1_score, tpr, fpr, reward]
+        try:
+            ar_wo, ar_w = self.annual_retuan()
+        except Exception:
+            ar_wo, ar_w = np.nan, np.nan
+        try:
+            sp_wo, sp_w, mdd_wo, mdd_w = self.sharpe_ratio()
+        except Exception:
+            sp_wo, sp_w, mdd_wo, mdd_w = np.nan, np.nan, np.nan, np.nan
+        self.evaluated.loc[len(self.evaluated)] = [self.df.iloc[0].ticker,tp,fp,tn,fn,accuracy, precision, recall, f1_score, tpr, fpr, reward,
+                                                   ar_wo, ar_w, sp_wo, sp_w, mdd_wo, mdd_w]
         return self.evaluated
     
     def regr_perf(self):

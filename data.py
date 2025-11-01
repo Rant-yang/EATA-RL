@@ -59,7 +59,7 @@ class DataStorage():
         self.conn.close()
 
     def load(self,from_table:str) -> pd.DataFrame:
-        return pd.read_sql(f'SELECT * FROM {from_table}', con = self.conn,index_col='index')
+        return pd.read_sql(f'SELECT * FROM {from_table}', con = self.conn)
 
     def save(self, df:pd.DataFrame, to_table:str, if_exists='replace'):
         return df.to_sql(name=to_table,con = self.conn, if_exists = if_exists)
