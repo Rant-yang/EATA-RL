@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 from typing import Optional, Dict, Any, List, Tuple
-from scipy.stats import wasserstein_distance
+from scipy.stats import entropy
 
 # 导入新的NEMoTS核心模块
 from eata_agent.engine import Engine
@@ -110,12 +110,11 @@ class Agent:
     def _calculate_rl_reward_and_signal(self, prediction_distribution: np.ndarray, lookahead_ground_truth: np.ndarray, shares_held: int) -> Tuple[float, int]:
         """
         计算RL奖励和交易信号
-        - RL奖励: 基于预测分布与真实分布的瓦瑟斯坦距离。
+        - RL奖励: 基于预测分布与真实分布的KL散度(Kullback-Leibler Divergence)。
         - 交易信号: 基于固定的Q25/Q75规则。
         """
         try:
             if prediction_distribution.size == 0:
-                # 如果没有预测，则奖励为0，动作为持有
                 return 0.0, 0
 
             # --- 交易信号决策 (逻辑保持不变) ---
@@ -131,19 +130,32 @@ class Agent:
             else:
                 print("  [决策] 预测分布跨越零点，信号不明确，生成意图信号: 持有")
 
-            # --- RL奖励计算 (新逻辑: 瓦瑟斯坦距离) ---
-            # 1. 提取真实的日收益率 (lookahead期间的收盘价变化率)
+            # --- RL奖励计算 (新逻辑: KL散度) ---
+            # 1. 提取真实的日收益率
             actual_returns = lookahead_ground_truth.T[3, :] 
 
-            # 2. 计算预测分布与真实分布之间的瓦瑟斯坦距离
-            #    注意：scipy的实现可以处理两个样本数量不同的分布
-            distance = wasserstein_distance(prediction_distribution, actual_returns)
+            # 2. 为两个分布创建共同的区间(bins)
+            combined_data = np.concatenate((prediction_distribution, actual_returns))
+            min_val, max_val = np.min(combined_data), np.max(combined_data)
+            num_bins = 50  # 定义分箱数量
+            bins = np.linspace(min_val, max_val, num_bins)
 
-            # 3. 将距离转换为奖励 (距离越小，奖励越高)
-            #    加1是为了防止距离为0时出现除零错误
-            rl_reward = 1 / (1 + distance)
+            # 3. 计算两个分布在共同区间上的直方图
+            pred_hist, _ = np.histogram(prediction_distribution, bins=bins, density=True)
+            actual_hist, _ = np.histogram(actual_returns, bins=bins, density=True)
+
+            # 4. 将频率转换为概率，并添加平滑项防止log(0)
+            epsilon = 1e-10
+            pred_probs = pred_hist / np.sum(pred_hist) + epsilon
+            actual_probs = actual_hist / np.sum(actual_hist) + epsilon
+
+            # 5. 计算KL散度
+            # scipy.stats.entropy(pk, qk) 计算 pk 相对于 qk 的KL散度
+            kl_divergence = entropy(pred_probs, actual_probs)
+
+            # 6. 将KL散度转换为奖励
+            rl_reward = 1 / (1 + kl_divergence)
             
-            # 返回rl_reward用于学习, intended_signal用于回测框架执行交易
             return rl_reward, intended_signal
         except Exception as e:
             print(f"--- 🚨 在 _calculate_rl_reward_and_signal 中捕获到致命错误 🚨 ---")
