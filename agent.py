@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import torch
 from typing import Optional, Dict, Any, List, Tuple
-from scipy.stats import wasserstein_distance
 
 # 导入新的NEMoTS核心模块
 from eata_agent.engine import Engine
@@ -110,7 +109,7 @@ class Agent:
     def _calculate_rl_reward_and_signal(self, prediction_distribution: np.ndarray, lookahead_ground_truth: np.ndarray, shares_held: int) -> Tuple[float, int]:
         """
         计算RL奖励和交易信号
-        - RL奖励: 基于预测分布与真实分布的瓦瑟斯坦距离。
+        - RL奖励: 基于预测分布与真实分布的Q25, Q75分位数的均方误差(MSE)。
         - 交易信号: 基于固定的Q25/Q75规则。
         """
         try:
@@ -131,17 +130,19 @@ class Agent:
             else:
                 print("  [决策] 预测分布跨越零点，信号不明确，生成意图信号: 持有")
 
-            # --- RL奖励计算 (新逻辑: 瓦瑟斯坦距离) ---
-            # 1. 提取真实的日收益率 (lookahead期间的收盘价变化率)
+            # --- RL奖励计算 (新逻辑: 分位数MSE) ---
+            # 1. 提取真实的日收益率
             actual_returns = lookahead_ground_truth.T[3, :] 
 
-            # 2. 计算预测分布与真实分布之间的瓦瑟斯坦距离
-            #    注意：scipy的实现可以处理两个样本数量不同的分布
-            distance = wasserstein_distance(prediction_distribution, actual_returns)
+            # 2. 计算预测分布和真实分布的Q25, Q75
+            pred_q25, pred_q75 = np.percentile(prediction_distribution, [25, 75])
+            actual_q25, actual_q75 = np.percentile(actual_returns, [25, 75])
 
-            # 3. 将距离转换为奖励 (距离越小，奖励越高)
-            #    加1是为了防止距离为0时出现除零错误
-            rl_reward = 1 / (1 + distance)
+            # 3. 计算分位数之间的均方误差 (MSE)
+            mse = ((pred_q25 - actual_q25)**2 + (pred_q75 - actual_q75)**2) / 2
+
+            # 4. 将MSE转换为奖励 (MSE越小，奖励越高)
+            rl_reward = 1 / (1 + mse)
             
             # 返回rl_reward用于学习, intended_signal用于回测框架执行交易
             return rl_reward, intended_signal
