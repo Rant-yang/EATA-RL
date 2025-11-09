@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
         # 4. 定义窗口参数和回测参数
         window_len = predictor.agent.lookback + predictor.agent.lookahead + 1
-        num_test_windows = 1000
+        num_test_windows = 30
         
         if len(stock_df) < window_len + num_test_windows - 1:
             raise Exception(f"股票 {ticker} 的数据不足，无法进行 {num_test_windows} 次窗口测试شه。")
@@ -134,17 +134,10 @@ if __name__ == "__main__":
                     print(f"  [交易] 买入 {shares_to_buy} 股 at {trade_price:.2f}")
             elif action == -1: # 卖出
                 if shares > 0:
-                    # 核心修复：从“全部卖出”改为“按比例卖出”
-                    shares_to_sell = int(shares * 0.2) # 计算卖出20%的股数
-                    if shares_to_sell > 0:
-                        cash += shares_to_sell * trade_price
-                        shares -= shares_to_sell
-                        print(f"  [交易] 按比例卖出 {shares_to_sell} 股 (20%) at {trade_price:.2f}")
-                    else:
-                        # 如果持仓过少，不足以卖出20%，则全部卖出以清仓
-                        cash += shares * trade_price
-                        print(f"  [交易] 持仓过少，清仓卖出 {shares} 股 at {trade_price:.2f}")
-                        shares = 0
+                    # 新逻辑：全部卖出 (All-Out)
+                    cash += shares * trade_price
+                    print(f"  [交易] 全仓卖出 {shares} 股 at {trade_price:.2f}")
+                    shares = 0
             
             # 在lookahead期间，逐日更新并记录资产
             lookahead_period_df = window_df.iloc[trade_day_index : trade_day_index + predictor.agent.lookahead]
