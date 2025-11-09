@@ -184,12 +184,6 @@ class MCTS():
         policy_valid = []  # 存储合法动作的策略值。
         sum_ucb = sum(self.UCBs[state][valid_action])  # 计算所有合法动作的UCT值之和。
 
-        if sum_ucb == 0: # if all UCBs are 0, return a uniform policy
-            A = np.zeros(nA)
-            if len(valid_action) > 0:
-                A[valid_action] = float(1 / len(valid_action))
-            return A
-
         for a in valid_action: # 遍历合法动作。
             policy_mcts = self.UCBs[state][a] / sum_ucb  # 计算每个动作的策略概率（UCT值归一化）。
             policy_valid.append(policy_mcts)
@@ -207,13 +201,13 @@ class MCTS():
 #与network的借口哦
     def get_policy3(self, nA, UC, seq, state, network, softmax=True):
         # 功能：调用神经网络获取策略(policy)和价值(value)。
-        policy, value, profit = network.policy_value(seq, state) # 调用网络的前向传播函数。
+        policy, value = network.policy_value(seq, state) # 调用网络的前向传播函数。
         policy = policy.cpu().detach().squeeze(0).numpy()
         
         if nA == 0:   # 如果没有可用动作
             pass
         policy = self.softmax(policy[:nA]) if softmax else policy[:nA]
-        return policy, value, profit
+        return policy, value
 
     def modify_UCB(self, probs, state):
         # 这是一个备用/未使用的UCT计算函数，它融合了神经网络的先验概率(probs)，更接近AlphaGo的PUCT公式
@@ -300,7 +294,7 @@ class MCTS():
              # --- 1. 选择 (Selection) --- 这里面具体的过程是可以直接用的
             while not UC:  # 当没有未访问子节点时，持续向下选择 这里子节点都有了访问，这里就可以计算UCT了
                 # 融合policy: alpha*NN + (1-alpha)*UCB1
-                policy_nn, value_nn, _ = self.get_policy3(nA, UC, seq, state, network, softmax=True)
+                policy_nn, value_nn = self.get_policy3(nA, UC, seq, state, network, softmax=True)
                 policy_ucb = self.get_policy1(nA, state, ntn[0])
                 policy = alpha * policy_nn + (1 - alpha) * policy_ucb
                 policy = np.clip(policy, 1e-8, 1)  # 防止全零
@@ -355,7 +349,7 @@ class MCTS():
 
             if UC:#如果发现了有未访问的子节点的节点
                 # 融合policy
-                policy_nn, value_nn, _ = self.get_policy3(nA, UC, seq, state, network, softmax=True)
+                policy_nn, value_nn = self.get_policy3(nA, UC, seq, state, network, softmax=True)
                 policy_ucb = self.get_policy1(nA, state, ntn[0])
                 policy = alpha * policy_nn + (1 - alpha) * policy_ucb
                 policy = np.clip(policy, 1e-8, 1)
