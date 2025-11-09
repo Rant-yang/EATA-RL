@@ -9,6 +9,9 @@ from agent import Agent
 from data import DataStorage # 导入数据存储类
 from performance_metrics import TradingMetrics # 导入我们新增的指标计算模块
 
+# 核心改动：直接导入我们改造后的Agent
+from agent import Agent
+
 class Predictor:
     def __init__(self):
         """
@@ -134,17 +137,10 @@ if __name__ == "__main__":
                     print(f"  [交易] 买入 {shares_to_buy} 股 at {trade_price:.2f}")
             elif action == -1: # 卖出
                 if shares > 0:
-                    # 核心修复：从“全部卖出”改为“按比例卖出”
-                    shares_to_sell = int(shares * 0.2) # 计算卖出20%的股数
-                    if shares_to_sell > 0:
-                        cash += shares_to_sell * trade_price
-                        shares -= shares_to_sell
-                        print(f"  [交易] 按比例卖出 {shares_to_sell} 股 (20%) at {trade_price:.2f}")
-                    else:
-                        # 如果持仓过少，不足以卖出20%，则全部卖出以清仓
-                        cash += shares * trade_price
-                        print(f"  [交易] 持仓过少，清仓卖出 {shares} 股 at {trade_price:.2f}")
-                        shares = 0
+                    # 新逻辑：全部卖出 (All-Out)
+                    cash += shares * trade_price
+                    print(f"  [交易] 全仓卖出 {shares} 股 at {trade_price:.2f}")
+                    shares = 0
             
             # 在lookahead期间，逐日更新并记录资产
             lookahead_period_df = window_df.iloc[trade_day_index : trade_day_index + predictor.agent.lookahead]
