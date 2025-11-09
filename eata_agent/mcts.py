@@ -6,6 +6,14 @@ import numpy as np
 
 
 class MCTS():
+    @staticmethod
+    def softmax(x):
+        """
+        Compute softmax values for each sets of scores in x.
+        """
+        e_x = np.exp(x - np.max(x))
+        return e_x / e_x.sum(axis=0)
+
     def __init__(self, data_sample, base_grammars, aug_grammars, nt_nodes, max_len, max_module, aug_grammars_allowed,
                  func_score, exploration_rate=1 / np.sqrt(2), eta=0.999, initial_tree=None):
         # 类的构造函数，用于初始化MCTS搜索所需的所有参数和数据结构。 这里类的构造就是提供一个模板
@@ -205,19 +213,18 @@ class MCTS():
         return A  # 返回这个探索性策略
 #与network的借口哦
     def get_policy3(self, nA, UC, seq, state, network, softmax=True):
-        # 功能：调用神经网络获取策略(policy)和价值(value)。
+        # 功能：调用神经网络获取策略(policy)、价值(value)和盈利预测(profit)。
         policy, value, profit = network.policy_value(seq, state) # 调用网络的前向传播函数。
         policy = policy.cpu().detach().squeeze(0).numpy()
-        # 功能：调用神经网络获取策略(policy)、价值(value)和奖励(reward)。
-        policy, value, reward_pred = network.policy_value(seq, state) # 调用网络的前向传播函数。
-        policy = policy.cpu().detach().squeeze(0).numpy()
-        # 保存reward预测用于后续训练
-        self.last_reward_pred = reward_pred.cpu().detach().squeeze(0).numpy()
+
+        # 保存profit预测用于后续分析或调试
+        self.last_profit_pred = profit.cpu().detach().squeeze(0).numpy()
+
         if nA == 0:   # 如果没有可用动作
-            pass
+            return np.array([]), value, profit
+
         policy = self.softmax(policy[:nA]) if softmax else policy[:nA]
         return policy, value, profit
-        return policy, value
 
     def modify_UCB(self, probs, state):
         # 这是一个备用/未使用的UCT计算函数，它融合了神经网络的先验概率(probs)，更接近AlphaGo的PUCT公式
@@ -425,10 +432,3 @@ class MCTS():
                                                                              value_records)
 
         # 返回：奖励历史，最优解，优秀模块库，以及用于训练的经验数据。
-        @staticmethod
-        def softmax(x):
-            """
-            Compute softmax values for each sets of scores in x.
-            """
-            e_x = np.exp(x - np.max(x))
-            return e_x / e_x.sum(axis=0)
