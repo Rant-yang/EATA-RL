@@ -6,14 +6,14 @@ import numpy as np
 
 
 class MCTS():
-     @staticmethod
+  @staticmethod
     def softmax(x):
         """
         Compute softmax values for each sets of scores in x.
         """
         e_x = np.exp(x - np.max(x))
         return e_x / e_x.sum(axis=0)
-
+         
     def __init__(self, data_sample, base_grammars, aug_grammars, nt_nodes, max_len, max_module, aug_grammars_allowed,
                  func_score, exploration_rate=1 / np.sqrt(2), eta=0.999, initial_tree=None):
         # 类的构造函数，用于初始化MCTS搜索所需的所有参数和数据结构。 这里类的构造就是提供一个模板
