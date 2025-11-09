@@ -150,15 +150,14 @@ class Agent:
             print(f"错误信息: {e}")
             import traceback
             traceback.print_exc()
-            print(f"--- 诊断结束 ---")
             return 0.0, 0
 
     def criteria(self, d: pd.DataFrame, shares_held: int) -> int:
         """核心决策函数，集成策略学习流程"""
         try:
             if self.previous_best_tree is not None:
-                print("检测到已有语法树，切换到热启动参数...")
-                self.engine.model.num_runs = 3# 热启动时也增加探索
+                print("检测到已有语法树，切换到热启动参数 (num_runs=1)...")
+                self.engine.model.num_runs = 1 # 核心优化：热启动时，只运行1次MCTS
                 self.engine.model.num_transplant = 5
                 self.engine.model.transplant_step = 300
                 self.engine.model.num_aug = 3
@@ -210,7 +209,7 @@ class Agent:
             print(f"NEMoTS Agent 'criteria' 失败: {e}")
             import traceback
             traceback.print_exc()
-            return 0
+            return 0, 0
 
     # choose_action, vote, strength 方法保持不变
     @classmethod
@@ -220,7 +219,8 @@ class Agent:
             temp_agent = Agent(pd.DataFrame())
             # 注意：这里的静态调用无法知道持仓状态，这是一个简化处理。
             # 在真实的多股票场景中，需要为每个股票维护一个Agent实例。
-            return temp_agent.criteria(s1, shares_held=0) # 假设默认是空仓
+            action, _ = temp_agent.criteria(s1, shares_held=0) # 假设默认是空仓
+            return action
         except Exception as e:
             print(f"动作选择失败: {e}")
             return 0
