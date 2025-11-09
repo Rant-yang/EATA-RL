@@ -158,7 +158,7 @@ class Agent:
         try:
             if self.previous_best_tree is not None:
                 print("检测到已有语法树，切换到热启动参数...")
-                self.engine.model.num_runs = 3# 热启动时也增加探索
+                self.engine.model.num_runs = 1# 热启动时也增加探索
                 self.engine.model.num_transplant = 5
                 self.engine.model.transplant_step = 300
                 self.engine.model.num_aug = 3
