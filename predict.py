@@ -134,17 +134,10 @@ if __name__ == "__main__":
                     print(f"  [交易] 买入 {shares_to_buy} 股 at {trade_price:.2f}")
             elif action == -1: # 卖出
                 if shares > 0:
-                    # 核心修复：从“全部卖出”改为“按比例卖出”
-                    shares_to_sell = int(shares * 0.2) # 计算卖出20%的股数
-                    if shares_to_sell > 0:
-                        cash += shares_to_sell * trade_price
-                        shares -= shares_to_sell
-                        print(f"  [交易] 按比例卖出 {shares_to_sell} 股 (20%) at {trade_price:.2f}")
-                    else:
-                        # 如果持仓过少，不足以卖出20%，则全部卖出以清仓
-                        cash += shares * trade_price
-                        print(f"  [交易] 持仓过少，清仓卖出 {shares} 股 at {trade_price:.2f}")
-                        shares = 0
+                    # 新逻辑：全部卖出 (All-Out)
+                    cash += shares * trade_price
+                    print(f"  [交易] 全仓卖出 {shares} 股 at {trade_price:.2f}")
+                    shares = 0
             
             # 在lookahead期间，逐日更新并记录资产
             lookahead_period_df = window_df.iloc[trade_day_index : trade_day_index + predictor.agent.lookahead]
@@ -209,9 +202,9 @@ if __name__ == "__main__":
             # 确保收益率序列的索引是 DatetimeIndex
             daily_returns.index = pd.to_datetime(daily_returns.index)
             buy_and_hold_returns.index = pd.to_datetime(buy_and_hold_returns.index)
-            print(buy_and_hold_returns)
+            
             qs.reports.html(daily_returns, benchmark=buy_and_hold_returns, output='EATA_Strategy_Report.html', title=f'{ticker} - EATA Agent Performance')
-            print(f"\n📊 QuantStats 报告已成功保存到: EATA_Strategy_Report.html")
+            print(f"\n📊 QuantStats 报告已成功保存到: EATA_Strategy_Report. html")
         except Exception as e:
             print(f"\n⚠️ 生成 QuantStats 报告失败: {e}")
 
