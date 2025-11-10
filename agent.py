@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import torch
 from typing import Optional, Dict, Any, List, Tuple
+import pickle
+import os
 from scipy.stats import wasserstein_distance
 
 # 导入新的NEMoTS核心模块
@@ -20,6 +22,17 @@ class Agent:
         self.is_trained = False
         self.training_history = []
         self.__name__ = 'EATA_Agent_v3.1_fixed_strategy'
+        # self.state_file = 'tree_state_baseline.pkl' # 定义状态文件
+
+        # # 尝试从文件加载上一次的状态
+        # if os.path.exists(self.state_file):
+        #     try:
+        #         with open(self.state_file, 'rb') as f:
+        #             self.previous_best_tree = pickle.load(f)
+        #         print(f"[状态管理] 成功从 {self.state_file} 加载了上一次的语法树状态。")
+        #     except Exception as e:
+        #         print(f"[状态管理] 加载状态文件失败: {e}，将作为冷启动运行。")
+        #         self.previous_best_tree = None
 
         print("EATA Agent (固定策略模式) 初始化完成")
         print(f"   - Lookback={self.lookback}, Lookahead={self.lookahead}")
@@ -157,8 +170,8 @@ class Agent:
         """核心决策函数，集成策略学习流程"""
         try:
             if self.previous_best_tree is not None:
-                print("检测到已有语法树，切换到热启动参数...")
-                self.engine.model.num_runs = 1# 热启动时也增加探索
+                print("检测到已有语法树，切换到热启动参数 (num_runs=1)...")
+                self.engine.model.num_runs = 1 # 核心优化：热启动时，只运行1次MCTS
                 self.engine.model.num_transplant = 5
                 self.engine.model.transplant_step = 300
                 self.engine.model.num_aug = 3
@@ -172,14 +185,23 @@ class Agent:
             lookback_data = full_window_data[:self.lookback, :]
             lookahead_data = full_window_data[-self.lookahead:, :]
 
-            # engine.simulate 现在返回 mcts_records
-            best_exp, top_10_exps, top_10_scores, _, mae, mse, corr, _, mcts_score, new_best_tree, mcts_records = self.engine.simulate(
+            print("调用核心引擎 engine.simulate...")
+            best_exp, top_10_exps, top_10_scores, _, mae, mse, corr, _, mcts_score, new_best_tree = self.engine.simulate(
                 full_window_data, previous_best_tree=self.previous_best_tree
             )
 
             self.previous_best_expression = str(best_exp)
             self.previous_best_tree = new_best_tree
             self.is_trained = True
+
+            # # 将新的语法树状态持久化到文件
+            # if self.previous_best_tree is not None:
+            #     try:
+            #         with open(self.state_file, 'wb') as f:
+            #             pickle.dump(self.previous_best_tree, f)
+            #         print(f"[状态管理] 成功将新的语法树状态保存到 {self.state_file}。")
+            #     except Exception as e:
+            #         print(f"[状态管理] 保存状态文件失败: {e}")
             
             record = {'mae': mae, 'corr': corr, 'mcts_score': mcts_score}
             self.training_history.append(record)
@@ -188,21 +210,13 @@ class Agent:
             prediction_distribution = self._predict_distribution(top_10_exps, lookback_data)
             print(f"生成了 {len(prediction_distribution)} 个预测点。")
 
+            # 直接调用已简化的奖励计算函数
             rl_reward, trading_signal = self._calculate_rl_reward_and_signal(
                 prediction_distribution, lookahead_data, shares_held
             )
             print(f"RL奖励 (基于真实信号): {rl_reward:.4f}, 意图交易信号: {trading_signal}")
 
-            # “盖戳”流程：将最终的rl_reward附加到本次窗口产生的所有经验上
-            stamped_experiences = []
-            for experience in mcts_records:
-                # experience 是一个元组 (state, seq, policy, value)
-                stamped_experience = experience + (rl_reward,)
-                stamped_experiences.append(stamped_experience)
-            
-            # 将“盖戳”后的经验数据存入引擎，并由引擎决定是否触发训练
-            if stamped_experiences:
-                self.engine.store_experiences(stamped_experiences)
+            # 注意：rl_reward 在此版本中仅用于评估，不用于优化训练
 
             return trading_signal, rl_reward
 
