@@ -27,7 +27,6 @@ class PVNet(nn.Module):
 
         self.dist_out = nn.Linear(hidden_dim * 2, len(self.grammar_vocab) + num_transplant - 2)
         self.value_out = nn.Linear(hidden_dim * 2, 1)
-        self.profit_out = nn.Linear(hidden_dim * 2, 1)
 
     def forward(self, seq, state_idx, need_embeddings=True):
         #定义了数据在网络中的流动方式（前向传播）
@@ -45,8 +44,7 @@ class PVNet(nn.Module):
         raw_dist_out = self.dist_out(out)
         raw_dist_out = torch.where(torch.isnan(raw_dist_out), torch.zeros_like(raw_dist_out), raw_dist_out)
         value_out = self.value_out(out)
-        profit_out = self.profit_out(out)
-        return raw_dist_out, value_out, profit_out
+        return raw_dist_out, value_out
 
 #与mcts统一的接口 真正调用的part
 class PVNetCtx:
@@ -68,8 +66,8 @@ class PVNetCtx:
         state_list = state.split(",")
         state_idx = torch.Tensor([self.symbol2idx[item] for item in state_list]).to(self.device)
         seq = torch.Tensor(seq).to(self.device)
-        raw_dist_out, value_out, profit_out = self.pv_net(seq[1, :].unsqueeze(0), state_idx.unsqueeze(0))
-        return raw_dist_out, value_out, profit_out
+        raw_dist_out, value_out = self.pv_net(seq[1, :].unsqueeze(0), state_idx.unsqueeze(0))
+        return raw_dist_out, value_out
    #返回概率和价值
 
     def process_state(self, state):
@@ -98,8 +96,8 @@ class PVNetCtx:
 
         states = torch.stack(states_list).to(self.device)
         seqs = torch.stack(seqs).to(self.device)
-        raw_dist_out, value_out, profit_out = self.pv_net(seqs, states, False)
-        return raw_dist_out, value_out, profit_out
+        raw_dist_out, value_out = self.pv_net(seqs, states, False)
+        return raw_dist_out, value_out
 
     def update_grammar_vocab_name(self, aug_grammars):
         # Rebuild the vocabulary with the base and augmented grammars
