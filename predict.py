@@ -76,7 +76,7 @@ if __name__ == "__main__":
             
             # 确保数据足够长
             window_len = predictor.agent.lookback + predictor.agent.lookahead + 1
-            num_test_windows = 30 # MSE项目默认30个窗口
+            num_test_windows = 1000 
             
             if len(stock_df) < window_len + num_test_windows - 1:
                 print(f"  [WARN] 股票 {ticker} 的数据不足，无法进行 {num_test_windows} 次窗口测试。跳过。")
