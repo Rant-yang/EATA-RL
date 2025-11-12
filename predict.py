@@ -15,6 +15,9 @@ from agent import Agent
 from data import DataStorage # 导入数据存储类
 from performance_metrics import TradingMetrics # 导入我们新增的指标计算模块
 
+# 核心改动：直接导入我们改造后的Agent
+from agent import Agent
+
 class Predictor:
     def __init__(self):
         """
