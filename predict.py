@@ -1,3 +1,4 @@
+import argparse # 新增：导入argparse模块
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -39,6 +40,12 @@ class Predictor:
 
 
 if __name__ == "__main__":
+    # 新增：解析命令行参数
+    parser = argparse.ArgumentParser(description="EATA Project Core Function Test, Backtest, and Evaluation (Multi-stock Version)")
+    parser.add_argument('--project_name', type=str, default='default',
+                        help='Name of the current project/experiment for distinguishing output files.')
+    args = parser.parse_args()
+
     print("🚀 启动 EATA 项目核心功能测试、回测与评估 (多股票版)")
     print("=======================================================")
 
@@ -95,11 +102,12 @@ if __name__ == "__main__":
             portfolio_values = [] # 记录每日总资产
             all_trade_dates = [] # 记录所有回测区间的日期
             rl_rewards_history = [] # 记录每个窗口的RL奖励
+            action_spans = [] # 新增：记录每个窗口的动作和时间范围，用于绘图
 
             # --- 初始持仓逻辑已被移除，回测将从100%现金开始 ---
 
-            # 6. 循环执行回测
-            for i in range(num_test_windows):
+            # 6. 循环执行回测 (核心改造：增加步长2，实现跳跃窗口)
+            for i in range(0, num_test_windows, 2):
                 window_number = i + 1
                 
                 # 从数据尾部向前切片，模拟在最新数据上进行的回测
@@ -109,12 +117,26 @@ if __name__ == "__main__":
                 
                 window_df = stock_df.iloc[start_index:end_index].copy()
                 window_df.reset_index(drop=True, inplace=True)
-
-                print(f"\n[Main] === 第 {window_number}/{num_test_windows} 次预测 ({'冷启动' if i == 0 else '热启动'}) ===")
-                
+    
+                # --- 深度诊断：检查滑动窗口的日期范围 ---
+                # 我们只对一支有问题的股票进行诊断，以减少日志量
+                if ticker == 'AMZN':
+                    if i < 5 or i >= num_test_windows - 5:
+                        print(f"        [深度诊断 i={i}] window_df 日期: {window_df['date'].iloc[0].date()} -> {window_df['date'].iloc[-1].date()}")
+                # --- 结束诊断 ---
+    
+                print(f"\n[Main] === 第 {window_number}/{num_test_windows} 次预测 ({'冷启动' if i == 0 else '热启动'}) ===")                
                 # 获取Agent的交易决策，并传入当前持仓状态
                 action, rl_reward = predictor.predict(df=window_df, shares_held=shares)
                 rl_rewards_history.append(rl_reward)
+
+                # --- 新增：记录动作区间 ---
+                lookahead_period_df_for_span = window_df.iloc[predictor.agent.lookback : predictor.agent.lookback + predictor.agent.lookahead]
+                if not lookahead_period_df_for_span.empty:
+                    start_date = lookahead_period_df_for_span['date'].iloc[0]
+                    end_date = lookahead_period_df_for_span['date'].iloc[-1]
+                    action_spans.append({'start': start_date, 'end': end_date, 'action': action})
+                # --- 结束新增 ---
                 
                 # --- 模拟交易与资产记录 ---
                 # 交易发生在lookback期之后的第一天
@@ -154,9 +176,18 @@ if __name__ == "__main__":
 
             # --- 核心修复：为资产曲线和指标计算增加统一的“第0天”起点 ---
             # 1. 找到回测期开始的前一个交易日
+            if portfolio_df.empty:
+                print(f"  [WARN] 股票 {ticker} 没有产生任何交易记录，无法生成图表和报告。")
+                continue
             first_trade_date = portfolio_df.index[0]
-            first_date_loc = stock_df.index[stock_df['date'] == first_trade_date][0]
-            start_day_minus_one_loc = first_date_loc - 1
+            first_date_loc_series = stock_df.index[stock_df['date'] == first_trade_date]
+            if first_date_loc_series.empty:
+                print(f"  [WARN] 无法在原始数据中定位到首次交易日期 {first_trade_date}，跳过T0点对齐。")
+                start_day_minus_one_loc = -1
+            else:
+                first_date_loc = first_date_loc_series[0]
+                start_day_minus_one_loc = first_date_loc - 1
+
 
             if start_day_minus_one_loc >= 0:
                 start_date_t0 = stock_df.loc[start_day_minus_one_loc, 'date']
@@ -191,6 +222,14 @@ if __name__ == "__main__":
             plt.style.use('seaborn-v0_8-darkgrid')
             fig, ax = plt.subplots(figsize=(16, 8))
 
+            # --- 新增：绘制背景颜色 ---
+            for span in action_spans:
+                if span['action'] == 1: # 买入
+                    ax.axvspan(span['start'], span['end'], facecolor='#90ee90', alpha=0.2, linewidth=0)
+                elif span['action'] == -1: # 卖出
+                    ax.axvspan(span['start'], span['end'], facecolor='#ffcccb', alpha=0.2, linewidth=0)
+            # --- 结束新增 ---
+
             # --- 核心修复：使用统一起点后的数据进行绘图 ---
             # 1. 绘制Agent策略曲线 (现在包含了T0点)
             ax.plot(portfolio_df.index, portfolio_df['value'], label='EATA Agent Strategy', color='royalblue', linewidth=2)
@@ -207,8 +246,8 @@ if __name__ == "__main__":
             ax.legend(fontsize=12)
             plt.tight_layout()
             
-            # 保存图表 (文件名包含股票代码)
-            figure_path = f'asset_curve_{ticker}.png'
+            # 保存图表 (文件名包含股票代码和项目名称)
+            figure_path = f'asset_curve_{args.project_name}_{ticker}.png'
             plt.savefig(figure_path)
             plt.close(fig) # 关闭图表，释放内存
             print(f"\n📈 资产曲线图已成功保存到: {figure_path}")
@@ -220,7 +259,7 @@ if __name__ == "__main__":
                 daily_returns.index = pd.to_datetime(daily_returns.index).to_period('D')
                 buy_and_hold_returns.index = pd.to_datetime(buy_and_hold_returns.index).to_period('D')
                 
-                report_path = f'EATA_Strategy_Report_{ticker}.html' # 文件名包含股票代码
+                report_path = f'EATA_Strategy_Report_{args.project_name}_{ticker}.html' # 文件名包含股票代码和项目名称
                 qs.reports.html(daily_returns, benchmark=buy_and_hold_returns, output=report_path, title=f'{ticker} - EATA Agent Performance')
                 print(f"\n📊 QuantStats 报告已成功保存到: {report_path}")
             except Exception as e:
@@ -243,8 +282,8 @@ if __name__ == "__main__":
             ax.legend(fontsize=12)
             plt.tight_layout()
             
-            # 保存图表 (文件名包含股票代码)
-            reward_figure_path = f'rl_reward_trend_{ticker}.png'
+            # 保存图表 (文件名包含股票代码和项目名称)
+            reward_figure_path = f'rl_reward_trend_{args.project_name}_{ticker}.png'
             plt.savefig(reward_figure_path)
             plt.close(fig) # 关闭图表，释放内存
             print(f"\n📉 RL奖励趋势图已成功保存到: {reward_figure_path}")
