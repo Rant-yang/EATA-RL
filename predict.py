@@ -255,9 +255,9 @@ if __name__ == "__main__":
             # 9. 生成 QuantStats 报告
             print("\n[Main] 正在生成 QuantStats 详细报告...")
             try:
-                # 修复QuantStats频率错误：显式将索引转换为日周期
-                daily_returns.index = pd.to_datetime(daily_returns.index).to_period('D')
-                buy_and_hold_returns.index = pd.to_datetime(buy_and_hold_returns.index).to_period('D')
+                 # 确保索引是 DatetimeIndex 以兼容 QuantStats
+                daily_returns.index = pd.to_datetime(daily_returns.index)
+                buy_and_hold_returns.index = pd.to_datetime(buy_and_hold_returns.index)
                 
                 report_path = f'EATA_Strategy_Report_{args.project_name}_{ticker}.html' # 文件名包含股票代码和项目名称
                 qs.reports.html(daily_returns, benchmark=buy_and_hold_returns, output=report_path, title=f'{ticker} - EATA Agent Performance')
