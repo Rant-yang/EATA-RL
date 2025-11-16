@@ -99,6 +99,7 @@ if __name__ == "__main__":
             initial_cash = 1_000_000
             cash = initial_cash
             shares = 0
+            stance = 0 # 新增：交易姿态，1为多头，-1为空头，0为空仓
             portfolio_values = [] # 记录每日总资产
             all_trade_dates = [] # 记录所有回测区间的日期
             rl_rewards_history = [] # 记录每个窗口的RL奖励
@@ -138,27 +139,47 @@ if __name__ == "__main__":
                     action_spans.append({'start': start_date, 'end': end_date, 'action': action})
                 # --- 结束新增 ---
                 
-                # --- 模拟交易与资产记录 ---
+                # --- 模拟交易与资产记录 (已升级支持做空) ---
                 # 交易发生在lookback期之后的第一天
                 trade_day_index = predictor.agent.lookback
                 trade_price = window_df.loc[trade_day_index, 'open']
 
-                if action == 1: # 买入
-                    if cash > 0:
+                # 核心逻辑：更新交易“姿态”
+                # Agent的“0”信号意味着“保持姿态”，非“0”信号则更新为新姿态
+                if action != 0:
+                    stance = action
+
+                # 根据“姿态”执行交易
+                if stance == 1: # 姿态: 做多
+                    if shares < 0: # 如果当前是空头，先平仓
+                        cash_needed_to_cover = abs(shares) * trade_price
+                        cash -= cash_needed_to_cover
+                        print(f"  [交易] 平空仓: 买回 {abs(shares)} 股 at {trade_price:.2f}")
+                        shares = 0
+                    
+                    if shares == 0 and cash > 0: # 如果是空仓，则全仓买入
                         shares_to_buy = cash // trade_price
                         shares += shares_to_buy
                         cash -= shares_to_buy * trade_price
-                        print(f"  [交易] 买入 {shares_to_buy} 股 at {trade_price:.2f}")
-                elif action == -1: # 卖出
-                    if shares > 0:
-                        # 新逻辑：全部卖出 (All-Out)
+                        print(f"  [交易] 建多仓: 买入 {shares_to_buy} 股 at {trade_price:.2f}")
+
+                elif stance == -1: # 姿态: 做空
+                    if shares > 0: # 如果当前是多头，先平仓
                         cash += shares * trade_price
-                        print(f"  [交易] 全仓卖出 {shares} 股 at {trade_price:.2f}")
+                        print(f"  [交易] 平多仓: 卖出 {shares} 股 at {trade_price:.2f}")
                         shares = 0
+
+                    if shares == 0: # 如果是空仓，则建立等同于当前现金价值的空头仓位
+                        value_to_short = cash # 使用当前现金作为做空的名义价值
+                        shares_to_short = value_to_short // trade_price
+                        shares -= shares_to_short # 持股变为负数
+                        cash += shares_to_short * trade_price # 卖出借来的股票，现金增加
+                        print(f"  [交易] 建空仓: 卖空 {shares_to_short} 股 at {trade_price:.2f}")
                 
                 # 在lookahead期间，逐日更新并记录资产
                 lookahead_period_df = window_df.iloc[trade_day_index : trade_day_index + predictor.agent.lookahead]
                 for _, day in lookahead_period_df.iterrows():
+                    # 核心公式：总资产 = 现金 + 持股价值。持股为负时，自动扣除空头负债。
                     daily_value = cash + shares * day['close']
                     portfolio_values.append(daily_value)
                     all_trade_dates.append(day['date'])
@@ -255,7 +276,7 @@ if __name__ == "__main__":
             # 9. 生成 QuantStats 报告
             print("\n[Main] 正在生成 QuantStats 详细报告...")
             try:
-               # 确保索引是 DatetimeIndex 以兼容 QuantStats
+                # 确保索引是 DatetimeIndex 以兼容 QuantStats
                 daily_returns.index = pd.to_datetime(daily_returns.index)
                 buy_and_hold_returns.index = pd.to_datetime(buy_and_hold_returns.index)
                 
