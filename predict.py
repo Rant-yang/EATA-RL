@@ -64,8 +64,8 @@ if __name__ == "__main__":
         # 2. 获取所有唯一的股票代码
         all_tickers = all_data['code'].unique()
         # 用户指定跑10只股票，这里可以根据需要调整
-        if len(all_tickers) > 10:
-            all_tickers = all_tickers[:10] # 只取前10只股票
+        # if len(all_tickers) > 10:
+        #     all_tickers = all_tickers[:10] # 只取前10只股票
         print(f"[Main] 发现 {len(all_tickers)} 支股票，将逐一进行回测: {all_tickers}")
 
         # 3. 初始化一个列表来存储所有股票的最终指标
@@ -268,7 +268,7 @@ if __name__ == "__main__":
             plt.tight_layout()
             
             # 保存图表 (文件名包含股票代码和项目名称)
-            figure_path = f'asset_curve_{args.project_name}_{ticker}.png'
+            figure_path = f'asset_curve_{args.project_name}_{ticker}_1.png'
             plt.savefig(figure_path)
             plt.close(fig) # 关闭图表，释放内存
             print(f"\n📈 资产曲线图已成功保存到: {figure_path}")
@@ -280,7 +280,7 @@ if __name__ == "__main__":
                 daily_returns.index = pd.to_datetime(daily_returns.index)
                 buy_and_hold_returns.index = pd.to_datetime(buy_and_hold_returns.index)
                 
-                report_path = f'EATA_Strategy_Report_{args.project_name}_{ticker}.html' # 文件名包含股票代码和项目名称
+                report_path = f'EATA_Strategy_Report_{args.project_name}_{ticker}_1.html' # 文件名包含股票代码和项目名称
                 qs.reports.html(daily_returns, benchmark=buy_and_hold_returns, output=report_path, title=f'{ticker} - EATA Agent Performance')
                 print(f"\n📊 QuantStats 报告已成功保存到: {report_path}")
             except Exception as e:
@@ -304,7 +304,7 @@ if __name__ == "__main__":
             plt.tight_layout()
             
             # 保存图表 (文件名包含股票代码和项目名称)
-            reward_figure_path = f'rl_reward_trend_{args.project_name}_{ticker}.png'
+            reward_figure_path = f'rl_reward_trend_{args.project_name}_{ticker}_1.png'
             plt.savefig(reward_figure_path)
             plt.close(fig) # 关闭图表，释放内存
             print(f"\n📉 RL奖励趋势图已成功保存到: {reward_figure_path}")
