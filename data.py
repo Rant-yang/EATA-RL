@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from itertools import count
 import tushare as ts
 
-DATABASE = "stock.db"
+DATABASE = "stock_large.db"
 DATABASE_PATH = MAIN_PATH  # 这句话在其他import的时候就已经执行，所以未必能达到想要的效果 # 直接调用上面globals.MAIN_PATH 导致不能正确建立conn，main不能及时修改globals.MAIN_PATH
 ALL_TICKERS_DATA = "all_tickers"
 RAW_DATA = "downloaded" # by 'date'
